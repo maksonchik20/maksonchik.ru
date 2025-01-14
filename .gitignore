@@ -5,5 +5,4 @@ __pycache__
 bin
 gunicorn_config.py
 static
-req.py
 migrations
