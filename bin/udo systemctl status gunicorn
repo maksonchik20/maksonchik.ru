@@ -1,0 +1,16 @@
+[0;1;31m×[0m gunicorn.service - gunicorn daemon
+     Loaded: loaded (/etc/systemd/system/gunicorn.service; disabled; vendor preset: enabled)
+     Active: [0;1;31mfailed[0m (Result: exit-code) since Tue 2025-01-14 18:43:38 MSK; 16s ago
+TriggeredBy: [0;1;31m×[0m gunicorn.socket
+    Process: 2522 ExecStart=/home/user/myprojectdir/myprojectenv/bin/gunicorn --access-logfile - --workers 3 --bind unix:/run/gunicorn.sock myproject.wsgi:application [0;1;31m(code=exited, status=217/USER)[0m
+   Main PID: 2522 (code=exited, status=217/USER)
+        CPU: 887us
+
+Jan 14 18:43:38 4089609-fc34945 systemd[1]: Started gunicorn daemon.
+Jan 14 18:43:38 4089609-fc34945 systemd[2522]: [0;1;31m[0;1;39m[0;1;31mgunicorn.service: Failed to determine user credentials: No such process[0m
+Jan 14 18:43:38 4089609-fc34945 systemd[2522]: [0;1;31m[0;1;39m[0;1;31mgunicorn.service: Failed at step USER spawning /home/user/myprojectdir/myprojectenv/bin/gunicorn: No such process[0m
+Jan 14 18:43:38 4089609-fc34945 systemd[1]: [0;1;39m[0;1;31m[0;1;39mgunicorn.service: Main process exited, code=exited, status=217/USER[0m
+Jan 14 18:43:38 4089609-fc34945 systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mgunicorn.service: Failed with result 'exit-code'.[0m
+Jan 14 18:43:38 4089609-fc34945 systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mgunicorn.service: Start request repeated too quickly.[0m
+Jan 14 18:43:38 4089609-fc34945 systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mgunicorn.service: Failed with result 'exit-code'.[0m
+Jan 14 18:43:38 4089609-fc34945 systemd[1]: [0;1;31m[0;1;39m[0;1;31mFailed to start gunicorn daemon.[0m
