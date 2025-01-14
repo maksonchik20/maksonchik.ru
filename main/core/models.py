@@ -1,3 +1,8 @@
 from django.db import models
 
-# Create your models here.
+
+class Messages(models.Model):
+    text = models.TextField(verbose_name="Текст сообщения")
+
+    def __str__(self):
+        return self.text
