@@ -3,4 +3,5 @@ db.sqlite3
 *.pyc
 __pycache__
 bin
-gunicorn_config.py
+main/gunicorn_config.py
+static
