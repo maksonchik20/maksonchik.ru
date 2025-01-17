@@ -4,5 +4,7 @@ db.sqlite3
 __pycache__
 bin
 gunicorn_config.py
-static
+main/static/admin
 migrations
+env.py
+send_tg.py

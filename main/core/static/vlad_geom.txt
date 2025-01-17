@@ -1,0 +1,423 @@
+const dl INF = 1e5;
+const dl EPS = 1e-5;
+
+dl sign(dl val) {
+    return val < -EPS ? -1 : (val > EPS ? 1 : 0);
+}
+
+struct Vec {
+    dl x, y;
+    Vec() : x(0), y(0){}
+    Vec(dl x, dl y) : x(x), y(y) {};
+
+    Vec operator+(Vec b) {
+        return { x + b.x, y + b.y };
+    }
+    Vec operator-(Vec b) {
+        return { x - b.x, y - b.y };
+    }
+    Vec operator*(dl k) {
+        return { x * k, y * k };
+    }
+    Vec operator/(dl k) {
+        return { x / k, y / k };
+    }
+    dl operator^(Vec b) {
+        return x * b.x + y * b.y;
+    }
+    dl operator&(Vec b) {
+        return x * b.y - y * b.x;
+    }
+    bool operator==(Vec b){
+        return x == b.x && y == b.y;
+    }
+    bool operator!=(Vec b){
+        return x != b.x || y != b.y;
+    }
+    dl length(){
+        return pow(x * x + y * y, 0.5);
+    }
+    dl alpha() {
+        dl a = atan2(y, x);
+        if (a < 0) a = 2 * M_PI + a;
+        return a;
+    }
+};
+
+dl get_vec_angle(Vec v1, Vec v2){
+    dl dot = v1.x * v2.x + v1.y * v2.y; // dot product
+    dl det = v1.x * v2.y - v1.y * v2.x; // determinant
+    dl angle = atan2(det, dot);  // atan2(y, x)
+    return angle;
+}
+
+struct Line {
+    dl a, b, c;
+    Line() {}
+    Line(dl a, dl b, dl c): a(a), b(b), c(c) {}
+    Line(Vec d1, Vec d2) {
+        Vec ab = { d2.x - d1.x, d2.y - d1.y };
+        Vec perp = { -ab.y, ab.x };
+        a = perp.x;
+        b = perp.y;
+        c = -a * d1.x - b * d1.y;
+    }
+    dl produce(Vec d) {
+        return a * d.x + b * d.y + c;
+    }
+    bool includes(Vec d){
+        return sign(produce(d)) == 0;
+    }
+    bool operator==(Line l){
+        if (l.a * b - a * l.b != 0) return false; // не параллельны
+        Vec d = a == 0 ? Vec(0, -c / b) : Vec(-c / a, 0);
+        return l.includes(d);
+    }
+};
+
+struct Segment {
+    Vec d1, d2;
+    Segment() {}
+    Segment(Vec d1, Vec d2) : d1(d1), d2(d2) {}
+    Line line() {
+        return Line(d1, d2);
+    }
+    Vec vec(){
+        // d1 - start
+        return Vec(d2.x - d1.x, d2.y - d1.y);
+    }
+    bool includes(Vec d) {
+        return min(d1.x, d2.x) - EPS <= d.x && d.x <= max(d1.x, d2.x) + EPS &&
+            min(d1.y, d2.y) - EPS <= d.y && d.y <= max(d1.y, d2.y) + EPS && 
+            line().includes(d);
+    }
+    bool is_dot(){
+        return d1 == d2;
+    }
+    dl length(){
+        return Vec(d1 - d2).length();
+    }
+};
+
+struct Ray {
+    Vec d1, d2;
+    Ray() {}
+    Ray(Vec d1, Vec d2) : d1(d1), d2(d2) {}
+    Line line() {
+        return Line(d1, d2);
+    }
+};
+
+Vec intersect(Line l1, Line l2){
+    // если не параллельны
+    dl y = (l1.a * l2.c - l2.a * l1.c) / (l2.a * l1.b - l1.a * l2.b);
+    dl x = l1.a != 0 ? (-l1.c - l1.b * y) / l1.a : (-l2.c - l2.b * y) / l2.a;
+    Vec intersection(x, y);
+    return intersection;
+}
+
+// общая точка отрезков
+Vec intersect(Segment s1, Segment s2) {
+    Vec infdot = {INF, INF};
+
+    // когда один из отрезков - точка
+    if (s1.is_dot()){
+        if (s2.is_dot()) return s1.d1 == s2.d1 ? s1.d1 : infdot;
+        else return s2.includes(s1.d1) ? s1.d1 : infdot;
+    }
+    if (s2.is_dot()) return s1.includes(s2.d1) ? s2.d1 : infdot;
+
+    // уравнения прямых отрезков
+    Line l1 = s1.line();
+    Line l2 = s2.line();
+
+    // когда отрезки параллельны
+    if (l2.a * l1.b - l1.a * l2.b == 0){
+        // проверка на совпадение прямых
+        if (l1 == l2){
+            // проверка на общую точку в отрезках
+            if (s1.includes(s2.d1)) return s2.d1;
+            if (s1.includes(s2.d2)) return s2.d2;
+            if (s2.includes(s1.d1)) return s1.d1;
+            if (s2.includes(s1.d2)) return s1.d2;
+        }
+        return infdot;
+    }
+
+    // обычный случай - пересечение прямых
+    Vec intersection = intersect(l1, l2);
+    if (s1.includes(intersection) && s2.includes(intersection)) return intersection;
+    return infdot;
+}
+
+// имеют ли общую точку два отрезка
+bool is_intersected(Segment s1, Segment s2) {
+    return intersect(s1, s2) != Vec(INF, INF);
+}
+
+// имеют ли общую точку луч и прямая
+bool is_intersected(Ray r, Line l) {
+    // уравнения прямых луча
+    Line l1 = r.line();
+    Line l2 = l;
+
+    // когда параллельны
+    if (l2.a * l1.b - l1.a * l2.b == 0){
+        // проверка на совпадение прямых
+        return l1 == l2;
+    }
+
+    Vec intersection = intersect(l1, l2);
+    return sign(intersection.x - r.d1.x) == sign(r.d2.x - r.d1.x) &&
+            sign(intersection.y - r.d1.y) == sign(r.d2.y - r.d1.y);
+}
+
+// имеют ли общую точку две прямые
+bool is_intersected(Line l1, Line l2) {
+    // когда параллельны
+    if (l2.a * l1.b - l1.a * l2.b == 0){
+        // проверка на совпадение прямых
+        return l1 == l2;
+    }
+    return true;
+}
+
+// имеют ли общую точку два луча
+bool is_intersected(Ray r1, Ray r2) {
+    // уравнения прямых лучей
+    Line l1 = r1.line();
+    Line l2 = r2.line();
+
+    // когда параллельны
+    if (l2.a * l1.b - l1.a * l2.b == 0){
+        // проверка на совпадение прямых
+        if (l1 == l2){
+            return sign(r1.d2.x - r1.d1.x) == sign(r2.d2.x - r2.d1.x) &&
+                    sign(r1.d2.y - r1.d1.y) == sign(r2.d2.y - r2.d1.y);
+        }
+        return false;
+    }
+
+    Vec intersection = intersect(l1, l2);
+    return sign(intersection.x - r1.d1.x) == sign(r1.d2.x - r1.d1.x) &&
+            sign(intersection.y - r1.d1.y) == sign(r1.d2.y - r1.d1.y) &&
+            sign(intersection.x - r2.d1.x) == sign(r2.d2.x - r2.d1.x) &&
+            sign(intersection.y - r2.d1.y) == sign(r2.d2.y - r2.d1.y);
+}
+
+dl dist(Vec& a, Vec& b){
+    Vec diff = a - b;
+    return sqrtl(powl(diff.x, 2) + powl(diff.y, 2));
+}
+
+dl dist(Vec& d, Segment& s){
+    Line segl = s.line();
+    Line perp_line = Line(d, d + Vec(segl.a, segl.b));
+    Vec pd = intersect(segl, perp_line);
+
+    dl ans = min(dist(d, s.d1), dist(d, s.d2));
+    if (s.includes(pd)) ans = min(ans, dist(d, pd));
+    return ans;
+}
+
+dl dist(Segment& a, Segment& b, bool skip_intersection_check=false){
+    if (!skip_intersection_check && is_intersected(a, b)) return 0;
+    return min(
+        min(dist(a.d1, b), dist(a.d2, b)),
+        min(dist(b.d1, a), dist(b.d2, a))
+    );
+}
+
+struct Poly {
+    vector<Vec> poly;
+    Poly() {};
+    Poly(vector<Vec> poly) : poly(poly) {}
+    dl getS() {
+        dl s = 0;
+        for (int i = 0; i < poly.size(); i++) {
+            Vec d1 = poly[i]; Vec d2 = poly[(i + 1) % poly.size()];
+            s += (d1.y + d2.y) * (d2.x - d1.x) / 2;
+        }
+        return fabs(s);
+    }
+    vector<Segment> get_segments() {
+        vector<Segment> segments;
+        for (int i = 0; i < poly.size(); i++) {
+            Segment s = Segment(poly[i], poly[(i + 1) % poly.size()]);
+            segments.push_back(s);
+        }
+        return segments;
+    }
+    bool is_convex() {
+        int k = INF;
+        for (int i = 0; i < poly.size(); i++) {
+            int newk = sign(Line(poly[i], poly[(i + 1) % poly.size()]).produce(poly[(i + 2) % poly.size()]));
+            if (i == 0) k = newk;
+            else if (k != newk) return false;
+        }
+        return true;
+    }
+    bool includes(Vec d) {
+        dl ans = 0;
+        vector<Segment> segments = get_segments();
+        int k = 0;
+        for (Segment& seg : segments) {
+            Segment l(d, seg.d1);
+            Segment r(d, seg.d2);
+            dl angle = get_vec_angle(l.vec(), r.vec());
+            ans += angle;
+            if (seg.includes(d)) return true;
+        }
+        return !(abs(ans) < EPS);
+    }
+    // объединить последовательные отрезки, лежащие на одной прямой
+    void combine_line_segments(){
+        vector<Vec> newpoly;
+        vector<Segment> segments = get_segments();
+        int lasti = segments.size() - 1;
+        while (segments[0].line() == segments[lasti].line()) lasti--;
+
+        newpoly.push_back(segments[lasti].d2);
+        for (int i = 0; i < lasti; i++){
+            while (i < lasti && segments[i].line() == segments[i + 1].line()) i++;
+            newpoly.push_back(segments[i].d2);
+        }
+        if (newpoly[0] == newpoly.back()){
+            newpoly.pop_back();
+        }
+
+        this->poly = newpoly;
+    }
+};
+
+ostream& operator<<(ostream& out, const Line& l)
+{
+    out << "Line(" << l.a << "," << l.b << "," << l.c << ")";
+    return out;
+}
+
+ostream& operator<<(ostream& out, const Vec& d)
+{
+    out << "Vec(" << d.x << "," << d.y << ")";
+    return out;
+}
+
+ostream& operator<<(ostream& out, const Segment& s)
+{
+    out << "Segment(" << s.d1 << "," << s.d2 << ")";
+    return out;
+}
+
+ostream& operator<<(ostream& out, const Poly& p)
+{
+    out << "Poly(";
+    for (int i = 0; i < p.poly.size() - 1; i++) out << p.poly[i] << ",";
+    out << p.poly.back();
+    out << ")";
+    return out;
+}
+
+
+
+
+
+
+
+
+
+// построение оболочки и нахождение диаметра
+
+struct pt {
+	ll x, y;
+};
+
+bool cwise(pt& a, pt& b, pt& c){
+	return a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y) < 0;
+}
+
+bool ccwise(pt& a, pt& b, pt& c){
+	return a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y) > 0;
+}
+
+vector<pt> get_obolochka(vector<pt>& a) {
+	if (a.size() <= 2) return a;
+	sort(a.begin(), a.end(), [](pt& a, pt& b){return make_tuple(a.x, a.y) < make_tuple(b.x, b.y);});
+	pt p1 = a[0];
+    pt p2 = a.back();
+	vector<pt> up, down;
+	up.pub(p1);
+	down.pub(p1);
+	for (int i = 1; i < a.size(); i++) {
+		if (i == a.size() - 1 || cwise(p1, a[i], p2)) {
+			while (up.size() >= 2 && !cwise(up[up.size() - 2], up[up.size() - 1], a[i])){
+				up.pob();
+            }
+			up.pub(a[i]);
+		}
+		if (i == a.size() - 1 || ccwise(p1, a[i], p2)) {
+			while (down.size() >= 2 && !ccwise(down[down.size() - 2], down[down.size() - 1], a[i])){
+				down.pob();
+            }
+			down.pub(a[i]);
+		}
+	}
+	a.clear();
+	for (int i = 0; i<up.size(); i++){
+		a.pub(up[i]);
+    }
+	for (int i = down.size() - 2; i > 0; i--){
+		a.pub(down[i]);
+    }
+    return a;
+}
+
+ll dist(vll& dot1, vll& dot2, ll ti){
+    return (
+        powl((dot1[0] + dot1[2] * ti) - (dot2[0] + dot2[2] * ti), 2) +
+        powl((dot1[1] + dot1[3] * ti) - (dot2[1] + dot2[3] * ti), 2)
+    );
+}
+
+ll dist(pt& p1, pt& p2){
+    return (
+        powl(p1.x - p2.x, 2) +
+        powl(p1.y - p2.y, 2)
+    );
+}
+
+bool is_left(pt& a, pt& b, pt& c, pt& d){
+    ll l = (b.x - a.x) * (d.y - c.y);
+    ll r = (b.y - a.y) * (d.x - c.x);
+    ll res = l - r;
+    return res > 0;
+}
+
+
+ll ans(){
+    vector<pt> pts;
+    for (vvll& dotsc : dots){
+        for (vll& dot : dotsc){
+            pts.pub({dot[0] + dot[2], dot[1] + dot[3]});
+        }
+    }
+    vector<pt> ob = get_obolochka(pts);
+    auto minmax = minmax_element(all(ob), [](pt& a, pt& b){return make_tuple(a.x, a.y) < make_tuple(b.x, b.y);});
+	int pi = distance(ob.begin(), minmax.fi);
+    int qi = distance(ob.begin(), minmax.se);
+    int piend = pi;
+    int qiend = qi;
+
+    ll maxd = 0;
+    int iters = 0;
+    int maxiters = ob.size();
+    do {
+        maxd = max(maxd, dist(ob[pi], ob[qi]));
+        if (is_left(ob[pi], ob[(pi + 1) % ob.size()], ob[qi], ob[(qi + 1) % ob.size()])){
+            pi = (pi + 1) % ob.size();
+        }else{
+            qi = (qi + 1) % ob.size();
+        }
+        iters++;
+    }while ((pi != piend || qi != qiend) && iters < maxiters);
+    return maxd;
+}
