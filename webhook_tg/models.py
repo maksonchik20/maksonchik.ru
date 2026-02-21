@@ -15,6 +15,6 @@ class Chat(models.Model):
 class Message(models.Model):
     message_id = models.IntegerField(verbose_name="Message Id", unique=True)
     text = models.TextField(verbose_name="Text", null=True, blank=True)
-    
+
     def __str__(self):
-        return self.text
+        return self.text if self.text is not None else "None"

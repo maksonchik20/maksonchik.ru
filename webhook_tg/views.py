@@ -17,6 +17,7 @@ def index(request: HttpRequest):
 def webhook_tg(request: HttpRequest):
     try:
         data = json.loads(request.body.decode("utf-8"))
+        print(data)
         msg = data.get("business_message") or data.get("message") or data.get("edited_message") or data.get("edited_business_message") or {}
         text = msg.get("text", "")
         from_user_id = msg.get("from").get("id")
@@ -27,7 +28,6 @@ def webhook_tg(request: HttpRequest):
             whom_send_chat_id = get_whom_send(msg)
             send_msg(chat_id=whom_send_chat_id, message=build_message_update(msg))
         create_message(msg)
-        print(data)
         print(f"text: {text}")
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
         print(f"Bad JSON: {e}")
@@ -50,7 +50,7 @@ def create_message(msg):
 def build_message_update(msg):
     fr = msg.get("from") or {}
     first_name = fr.get("first_name") or "Unknown"
-    username = fr.get("username")  # может быть None
+    username = fr.get("username")
 
     message_id = msg.get("message_id")
     old = Message.objects.filter(message_id=message_id).first()
@@ -64,7 +64,8 @@ def build_message_update(msg):
     return (
         f"{user_part} изменил(а) сообщение:\n\n"
         f"<b>Old:</b>\n<pre>{html.escape(old_text)}</pre>\n"
-        f"<b>New:</b>\n<pre>{html.escape(new_text)}</pre>"
+        f"<b>New:</b>\n<pre>{html.escape(new_text)}</pre>\n"
+        f"<b> @{html.escape("who_update_bot")}"
     )
 
 def send_msg(chat_id, message):
