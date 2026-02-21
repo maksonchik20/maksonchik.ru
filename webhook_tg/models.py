@@ -13,7 +13,8 @@ class Chat(models.Model):
     user2 = models.IntegerField(verbose_name="Пользователь чата 2")
 
 class Message(models.Model):
-    message_id = models.IntegerField(verbose_name="Message Id")
-    from_user_id = models.IntegerField(verbose_name="From User Id")
-    to_user_id = models.IntegerField(verbose_name="From User Id")
+    message_id = models.IntegerField(verbose_name="Message Id", unique=True)
     text = models.TextField(verbose_name="Text", null=True, blank=True)
+    
+    def __str__(self):
+        return self.text

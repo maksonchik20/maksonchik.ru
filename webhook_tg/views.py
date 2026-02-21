@@ -26,6 +26,7 @@ def webhook_tg(request: HttpRequest):
         elif is_edited_message(data):
             whom_send_chat_id = get_whom_send(msg)
             send_msg(chat_id=whom_send_chat_id, message=build_message_update(msg))
+        create_message(msg)
         print(data)
         print(f"text: {text}")
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
@@ -33,6 +34,18 @@ def webhook_tg(request: HttpRequest):
         pass
     
     return HttpResponse(f"Success")
+
+def create_message(msg):
+    message_id = msg.get("message_id")
+    try:
+        m = Message.objects.get(message_id=message_id)
+        m.text = msg.get("text")
+        m.save(update_fields=["text"])
+    except Message.DoesNotExist:
+        m = Message.objects.create(
+            message_id=message_id,
+            text=msg.get("text"),
+        )
 
 def build_message_update(msg):
     fr = msg.get("from") or {}
