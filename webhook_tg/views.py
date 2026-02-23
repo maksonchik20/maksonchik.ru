@@ -60,9 +60,11 @@ def create_message(msg):
         m.save(update_fields=["text"])
     except Message.DoesNotExist:
         username_from = msg.get("from", {}).get("username")
+        chat_id = msg.get("chat", {}).get("id")
         m = Message.objects.create(
             message_id=message_id,
             username_from=username_from,
+            chat_id=chat_id,
             text=msg.get("text", "Не текстовое сообщение"),
         )
 
