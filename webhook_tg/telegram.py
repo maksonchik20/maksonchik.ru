@@ -23,12 +23,11 @@ def tg_send_message(chat_id: str, text: str, timeout: int = 3) -> None:
     )
 
 def get_business_connection(msg) -> BusinessConnection:
-    url = api_tg_url + "getBusinessConnection"
+    url = f"{api_tg_url}/getBusinessConnection"
     body = {}
     body['business_connection_id'] = msg.get("business_connection_id")
     ans = requests.post(url, json=body).json()
     print("business_connection", ans)
-    print("body:", body)
     user_chat_id = ans.get("result").get("user_chat_id")
     user_id = ans.get("result", {}).get("user", {}).get("id")
     return BusinessConnection(
