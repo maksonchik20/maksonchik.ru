@@ -3,7 +3,8 @@ from django.db import models
 class UserTg(models.Model):
     user_id = models.IntegerField(verbose_name="User Id пользователя")
     chat_id = models.IntegerField(verbose_name="Chat Id пользователя с ботом")
-    username = models.CharField(verbose_name="Username", default="", max_length=255)
+    username = models.CharField(verbose_name="Username", default="", max_length=255, blank=True, null=True)
+    first_name = models.CharField(verbose_name="First name sender", default="", blank=True, null=True, max_length=255)
 
     def __str__(self):
         return f"{self.username} : {self.user_id}"

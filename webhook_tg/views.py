@@ -27,8 +27,9 @@ def webhook_tg(request: HttpRequest):
         from_user_id = msg.get("from", {}).get("id")
         chat_id = msg.get("chat", {}).get("id")
         username = msg.get("from", {}).get("username")
+        first_name = msg.get("from", {}).get("first_name")
         if text == "/start" and is_message_to_bot(data):
-            init_user_bot(user_id=from_user_id, chat_id=chat_id, username=username)
+            init_user_bot(user_id=from_user_id, chat_id=chat_id, username=username, first_name=first_name)
             send_meeting_message(chat_id)
         elif is_edited_message(data):
             business_connection = get_business_connection(msg)
@@ -117,9 +118,31 @@ def build_message_update(msg):
         f"<b>@{html.escape('who_update_bot')}</b>"
     )
 
-def init_user_bot(user_id: int, chat_id: int, username: str):
-    tg_send_message(OWNER_CHAT_ID, f"new user register: {username}")
-    UserTg.objects.get_or_create(user_id=user_id, chat_id=chat_id, username=username)
+def init_user_bot(user_id: int, chat_id: int, username: str, first_name: str):
+    user, created = UserTg.objects.get_or_create(
+        user_id=user_id,
+        defaults={
+            "chat_id": chat_id,
+            "username": username or "",
+            "first_name": first_name or "",
+        }
+    )
+
+    if created:
+        tg_send_message(OWNER_CHAT_ID, f"New user: @{username or '-'} {first_name or ''} (id={user_id})")
+    else:
+        updated = False
+        if user.chat_id != chat_id:
+            user.chat_id = chat_id
+            updated = True
+        if (user.username or "") != (username or ""):
+            user.username = username or ""
+            updated = True
+        if (user.first_name or "") != (first_name or ""):
+            user.first_name = first_name or ""
+            updated = True
+        if updated:
+            user.save(update_fields=["chat_id", "username", "first_name"])
 
 def isBusiness(data):
     return data.get("business_message") is not None or data.get("edited_business_message") is not None
