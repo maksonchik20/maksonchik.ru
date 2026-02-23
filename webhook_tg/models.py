@@ -22,8 +22,7 @@ class Message(models.Model):
     created_at = models.DateTimeField(verbose_name="Создано", auto_now_add=True, null=True, blank=True)
 
     def __str__(self):
-        if self.username_from:
-            return f'"{self.first_name}" ({self.created_at}): {self.text}'
+        return f'"{self.first_name}" ({self.created_at}): {self.text}'
     
     class Meta:
         verbose_name = "Сообщение"
