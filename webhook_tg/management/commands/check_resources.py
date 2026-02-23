@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import time
+import datetime
 
 import psutil
 from django.conf import settings
@@ -82,7 +83,14 @@ class Command(BaseCommand):
             exceeded.append(f"CPU {cpu_pct}% >= {cpu_limit}%")
 
         if not exceeded:
-            self.stdout.write("ok: no limits exceeded")
+            now_str = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+
+            self.stdout.write(
+                f"[{now_str}] OK | "
+                f"Disk {disk_path}: {disk_used_pct}% used "
+                f"(used {human_gb(du.used)}, free {human_gb(du.free)}, total {human_gb(du.total)}) | "
+                f"CPU: {cpu_pct}%"
+            )
             return
 
         # антиспам (не чаще cooldown секунд)
