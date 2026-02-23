@@ -28,6 +28,7 @@ def get_business_connection(msg) -> BusinessConnection:
     body['business_connection_id'] = msg.get("business_connection_id")
     ans = requests.post(url, json=body).json()
     print("business_connection", ans)
+    print("body:", body)
     user_chat_id = ans.get("result").get("user_chat_id")
     user_id = ans.get("result", {}).get("user", {}).get("id")
     return BusinessConnection(
