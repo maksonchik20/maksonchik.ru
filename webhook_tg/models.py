@@ -14,6 +14,7 @@ class UserTg(models.Model):
         verbose_name_plural = "Пользователи бота"
 
 class Message(models.Model):
+    business_connection_id = models.CharField(verbose_name="Business connection id", default="", blank=True, null=True, max_length=255)
     message_id = models.IntegerField(verbose_name="Message Id", unique=True)
     username_from = models.CharField(verbose_name="Username sender", default="", blank=True, null=True, max_length=255)
     first_name = models.CharField(verbose_name="First name sender", default="", blank=True, null=True, max_length=255)
@@ -27,4 +28,3 @@ class Message(models.Model):
     class Meta:
         verbose_name = "Сообщение"
         verbose_name_plural = "Сообщения"
-    

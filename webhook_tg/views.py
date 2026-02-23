@@ -62,9 +62,11 @@ def create_message(msg):
         m.text = msg.get("text")
         m.save(update_fields=["text"])
     except Message.DoesNotExist:
+        business_connection_id = msg.get("business_connection_id")
         username_from = msg.get("from", {}).get("username")
         chat_id = msg.get("chat", {}).get("id")
         m = Message.objects.create(
+            business_connection_id = business_connection_id,
             message_id=message_id,
             username_from=username_from,
             chat_id=chat_id,
