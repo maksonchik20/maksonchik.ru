@@ -32,8 +32,10 @@ def webhook_tg(request: HttpRequest):
             business_connection = get_business_connection(msg)
             if (business_connection.user_chat_id != chat_id):
                 tg_send_message(chat_id=business_connection.user_chat_id, text=build_message_delete(msg))
-        elif is_edited_message(data) or is_new_message(data):
+
+        if is_edited_message(data) or is_new_message(data):
             create_message(msg)
+            
         print(f"text: {text}")
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
         print(f"Bad JSON: {e}")
