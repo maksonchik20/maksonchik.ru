@@ -1,13 +1,11 @@
 from django.shortcuts import render
-from django.http import HttpResponse, JsonResponse, HttpRequest, HttpResponseBadRequest
+from django.http import HttpResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 import json
-from .models import UserTg, Chat, Message
-import requests
-from env import TOKEN_BOT
+from .models import UserTg, Message
 import html
-
-api_tg_url = f"https://api.telegram.org/bot{TOKEN_BOT}/"
+from .inner_models.BusinessConnection import BusinessConnection
+from .telegram import tg_send_message, get_business_connection
 
 @csrf_exempt
 def index(request: HttpRequest):
@@ -22,16 +20,19 @@ def webhook_tg(request: HttpRequest):
               data.get("edited_business_message") or data.get("deleted_business_messages") or data.get("deleted_messages") or {}
         text = msg.get("text")
         from_user_id = msg.get("from", {}).get("id")
-        chat_id = msg.get("chat").get("id")
-        if text == "/start" and is_message_bot(data):
-            init_user_bot(user_id=from_user_id, chat_id=chat_id)
+        chat_id = msg.get("chat", {}).get("id")
+        username = msg.get("from", {}).get("username")
+        if text == "/start" and is_message_to_bot(data):
+            init_user_bot(user_id=from_user_id, chat_id=chat_id, username=username)
         elif is_edited_message(data):
-            whom_send_chat_id = get_whom_send(msg)
-            send_msg(chat_id=whom_send_chat_id, message=build_message_update(msg))
+            business_connection = get_business_connection(msg)
+            if (business_connection.user_chat_id != chat_id):
+                tg_send_message(chat_id=business_connection.user_chat_id, message=build_message_update(msg))
         elif is_deleted_message(data):
-            whom_send_chat_id = get_whom_send(msg)
-            send_msg(chat_id=whom_send_chat_id, message=build_message_delete(msg))
-        if is_edited_message(data) or is_new_message(data):
+            business_connection = get_business_connection(msg)
+            if (business_connection.user_chat_id != chat_id):
+                tg_send_message(chat_id=business_connection.user_chat_id, message=build_message_delete(msg))
+        elif is_edited_message(data) or is_new_message(data):
             create_message(msg)
         print(f"text: {text}")
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
@@ -77,7 +78,7 @@ def build_message_delete(deleted: dict) -> str:
     if len(msg_ids) > 20:
         lines.append(f"...и ещё {len(msg_ids) - 20} сообщений")
 
-    lines.append(f"@{html.escape('who_update_bot')}")
+    lines.append(f"<b>@{html.escape('who_update_bot')}</b>")
     return "\n".join(lines)
 
 def build_message_update(msg):
@@ -101,25 +102,13 @@ def build_message_update(msg):
         f"<b>@{html.escape('who_update_bot')}</b>"
     )
 
-def send_msg(chat_id, message):
-    method = "sendMessage"
-    url = api_tg_url + method
-    body = {}
-    body['chat_id'] = chat_id
-    body['text'] = message
-    body['parse_mode'] = "HTML"
-    body['disable_web_page_preview'] = True
-    print("SEND", message)
-    response = requests.post(url=url, json=body)
-    print('response_send', response.content)
-
-def init_user_bot(user_id: int, chat_id: int):
-    UserTg.objects.get_or_create(user_id=user_id, chat_id=chat_id)
+def init_user_bot(user_id: int, chat_id: int, username: str):
+    UserTg.objects.get_or_create(user_id=user_id, chat_id=chat_id, username=username)
 
 def isBusiness(data):
     return data.get("business_message") is not None or data.get("edited_business_message") is not None
 
-def is_message_bot(data):
+def is_message_to_bot(data):
     return data.get("message") is not None or data.get("edited_message") is not None
 
 def is_edited_message(data):
@@ -130,20 +119,3 @@ def is_new_message(data):
 
 def is_deleted_message(data):
     return data.get("deleted_business_messages") is not None or data.get("deleted_messages") is not None
-
-def save_chat(data):
-    from_id = data.get("from").get("id")
-    to_id = data.get("to").get("id")
-    chat_id = data.get("chat_id").get("id")
-    Chat.objects.get_or_create(chat_id=chat_id, user1=from_id, user2=to_id)
-
-def get_whom_send(msg):
-    url = api_tg_url + "getBusinessConnection"
-    body = {}
-    body['business_connection_id'] = msg.get("business_connection_id")
-    ans = requests.post(url, json=body).json()
-    user_id = ans.get("result").get("user_chat_id")
-    print(ans)
-    return user_id
-
-# {'update_id': 963245844, 'deleted_business_messages': {'business_connection_id': 'hjFTJIorWEjyFgAApmGdl3PFMWE', 'chat': {'id': 8040658294, 'first_name': 'Ростиславовна', 'username': 'olimpwork2025', 'type': 'private'}, 'message_ids': [605794]}}

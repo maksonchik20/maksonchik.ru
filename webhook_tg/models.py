@@ -3,18 +3,16 @@ from django.db import models
 class UserTg(models.Model):
     user_id = models.IntegerField(verbose_name="User Id пользователя")
     chat_id = models.IntegerField(verbose_name="Chat Id пользователя с ботом")
+    username = models.CharField(verbose_name="Username", default="", max_length=255)
 
     def __str__(self):
-        return self.text
-
-class Chat(models.Model):
-    chat_id = models.IntegerField(verbose_name="Chat Id")
-    user1 = models.IntegerField(verbose_name="Пользователь чата 1")
-    user2 = models.IntegerField(verbose_name="Пользователь чата 2")
+        return f"{self.username} : {self.user_id}"
 
 class Message(models.Model):
     message_id = models.IntegerField(verbose_name="Message Id", unique=True)
-    text = models.TextField(verbose_name="Text", null=True, blank=True)
+    username_from = models.TextField(verbose_name="Username sender", default="")
+    text = models.TextField(verbose_name="Text", default="Не текстовое сообщение")
 
     def __str__(self):
-        return self.text if self.text is not None else "None"
+        return f"{self.username_from}: {self.text}"
+    
