@@ -19,10 +19,10 @@ def webhook_tg(request: HttpRequest):
         msg = data.get("business_message") or data.get("message") or data.get("edited_message") or \
               data.get("edited_business_message") or data.get("deleted_business_messages") or data.get("deleted_messages") or {}
         text = msg.get("text")
-        if is_edited_message(data) or is_new_message(data):
-            create_message(msg)
         if text is None and not is_deleted_message(data):
             print("СООБЩЕНИЕ БЕЗ ТЕКСТА")
+            if is_edited_message(data) or is_new_message(data):
+                create_message(msg)
             raise NotImplementedError()
         from_user_id = msg.get("from", {}).get("id")
         chat_id = msg.get("chat", {}).get("id")
@@ -39,6 +39,8 @@ def webhook_tg(request: HttpRequest):
             business_connection = get_business_connection(msg)
             if (business_connection.user_chat_id != chat_id):
                 tg_send_message(chat_id=business_connection.user_chat_id, text=build_message_delete(msg))
+        if is_edited_message(data) or is_new_message(data):
+            create_message(msg)
 
 
         print(f"text: {text}")
