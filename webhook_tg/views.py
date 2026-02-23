@@ -48,8 +48,10 @@ def create_message(msg):
         m.text = msg.get("text")
         m.save(update_fields=["text"])
     except Message.DoesNotExist:
+        username_from = msg.get("from", {}).get("username")
         m = Message.objects.create(
             message_id=message_id,
+            username_from=username_from,
             text=msg.get("text"),
         )
 
