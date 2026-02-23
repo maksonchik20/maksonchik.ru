@@ -34,3 +34,17 @@ def get_business_connection(msg) -> BusinessConnection:
         user_chat_id = user_chat_id,
         user_id = user_id
         )
+
+def send_photo(text: str, chat_id: int, photo_id: str, timeout: int = 3) -> None:
+    url = f"{api_tg_url}/sendPhoto"
+    body = {}
+    body['chat_id'] = chat_id
+    body['caption'] = text
+    body['parse_mode'] = "HTML"
+    body['disable_web_page_preview'] = True
+    body['photo'] = photo_id
+    requests.post(
+        url,
+        json=body,
+        timeout=timeout,
+    )

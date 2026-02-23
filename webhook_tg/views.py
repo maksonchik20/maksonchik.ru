@@ -1,11 +1,11 @@
-from django.shortcuts import render
 from django.http import HttpResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 import json
 from .models import UserTg, Message
 import html
-from .inner_models.BusinessConnection import BusinessConnection
-from .telegram import tg_send_message, get_business_connection
+from .telegram import tg_send_message, get_business_connection, send_photo
+from .config import START_PHOTO_ID, START_TEXT
+
 
 @csrf_exempt
 def index(request: HttpRequest):
@@ -19,11 +19,17 @@ def webhook_tg(request: HttpRequest):
         msg = data.get("business_message") or data.get("message") or data.get("edited_message") or \
               data.get("edited_business_message") or data.get("deleted_business_messages") or data.get("deleted_messages") or {}
         text = msg.get("text")
+        if is_edited_message(data) or is_new_message(data):
+            create_message(msg)
+        if text is None:
+            print("СООБЩЕНИЕ БЕЗ ТЕКСТА")
+            raise NotImplementedError()
         from_user_id = msg.get("from", {}).get("id")
         chat_id = msg.get("chat", {}).get("id")
         username = msg.get("from", {}).get("username")
         if text == "/start" and is_message_to_bot(data):
             init_user_bot(user_id=from_user_id, chat_id=chat_id, username=username)
+            send_meeting_message(chat_id)
         elif is_edited_message(data):
             business_connection = get_business_connection(msg)
             if (business_connection.user_chat_id != chat_id):
@@ -33,15 +39,18 @@ def webhook_tg(request: HttpRequest):
             if (business_connection.user_chat_id != chat_id):
                 tg_send_message(chat_id=business_connection.user_chat_id, text=build_message_delete(msg))
 
-        if is_edited_message(data) or is_new_message(data):
-            create_message(msg)
-            
+
         print(f"text: {text}")
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
         print(f"Bad JSON: {e}")
         pass
+    except NotImplementedError as e:
+        pass
     
     return HttpResponse(f"Success")
+
+def send_meeting_message(chat_id: str):
+    send_photo(chat_id=chat_id, text=START_TEXT, photo_id=START_PHOTO_ID)
 
 def create_message(msg):
     message_id = msg.get("message_id")
@@ -54,7 +63,7 @@ def create_message(msg):
         m = Message.objects.create(
             message_id=message_id,
             username_from=username_from,
-            text=msg.get("text"),
+            text=msg.get("text", "Не текстовое сообщение"),
         )
 
 def build_message_delete(deleted: dict) -> str:

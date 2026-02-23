@@ -5,7 +5,6 @@ import time
 import datetime
 
 import psutil
-from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from webhook_tg.telegram import tg_send_message
@@ -62,7 +61,7 @@ class Command(BaseCommand):
 
         cpu_pct = int(psutil.cpu_percent(interval=1))
 
-        host = os.uname().nodename
+        host = "maksonchik.ru"
 
         text = (
             f"{host}\n"
