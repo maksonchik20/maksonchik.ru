@@ -21,7 +21,7 @@ def webhook_tg(request: HttpRequest):
         text = msg.get("text")
         if is_edited_message(data) or is_new_message(data):
             create_message(msg)
-        if text is None:
+        if text is None and not is_deleted_message(data):
             print("СООБЩЕНИЕ БЕЗ ТЕКСТА")
             raise NotImplementedError()
         from_user_id = msg.get("from", {}).get("id")
