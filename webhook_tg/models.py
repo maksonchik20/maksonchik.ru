@@ -14,7 +14,7 @@ class UserTg(models.Model):
 
 class Message(models.Model):
     message_id = models.IntegerField(verbose_name="Message Id", unique=True)
-    username_from = models.TextField(verbose_name="Username sender", default="")
+    username_from = models.TextField(verbose_name="Username sender", default="", blank=True, null=True)
     text = models.TextField(verbose_name="Text", default="Не текстовое сообщение", blank=True, null=True)
 
     def __str__(self):

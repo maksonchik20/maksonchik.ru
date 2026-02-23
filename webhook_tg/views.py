@@ -4,7 +4,7 @@ import json
 from .models import UserTg, Message
 import html
 from .telegram import tg_send_message, get_business_connection, send_photo
-from .config import START_PHOTO_ID, START_TEXT
+from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID
 
 
 @csrf_exempt
@@ -116,6 +116,7 @@ def build_message_update(msg):
     )
 
 def init_user_bot(user_id: int, chat_id: int, username: str):
+    tg_send_message(OWNER_CHAT_ID, f"new user register: {username}")
     UserTg.objects.get_or_create(user_id=user_id, chat_id=chat_id, username=username)
 
 def isBusiness(data):

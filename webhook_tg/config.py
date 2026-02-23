@@ -1,5 +1,4 @@
 START_PHOTO_ID = "AgACAgIAAxkBAAIBVmmccVezkBoWqXOouPnv2Knp5xWjAAKeG2sbAAEg4Eh26YJzT_JLJgEAAwIAA3MAAzoE"
-
 START_TEXT = (
     "<b>Добро пожаловать!</b>\n\n"
     "<b>Этот бот помогает контролировать\n"
@@ -13,3 +12,4 @@ START_TEXT = (
     "инструкцию на картинке сверху.\n\n"
     f"<b>@who_update_bot</b>"
 )
+OWNER_CHAT_ID = "1394340082"
