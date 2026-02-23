@@ -27,11 +27,11 @@ def webhook_tg(request: HttpRequest):
         elif is_edited_message(data):
             business_connection = get_business_connection(msg)
             if (business_connection.user_chat_id != chat_id):
-                tg_send_message(chat_id=business_connection.user_chat_id, message=build_message_update(msg))
+                tg_send_message(chat_id=business_connection.user_chat_id, text=build_message_update(msg))
         elif is_deleted_message(data):
             business_connection = get_business_connection(msg)
             if (business_connection.user_chat_id != chat_id):
-                tg_send_message(chat_id=business_connection.user_chat_id, message=build_message_delete(msg))
+                tg_send_message(chat_id=business_connection.user_chat_id, text=build_message_delete(msg))
         elif is_edited_message(data) or is_new_message(data):
             create_message(msg)
         print(f"text: {text}")
