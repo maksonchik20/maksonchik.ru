@@ -5,8 +5,8 @@ HIDDEN_USERNAMES = {"@tamataeva86", }
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ("username_from", "first_name", "text", "created_at")
-    list_filter = ("username_from", "business_connection_id")
+    list_display = ("username_from", "first_name", "text", "chat_id", "created_at")
+    list_filter = ("username_from", "business_connection_id", "chat_id")
     search_fields = ("username_from", "first_name", "text", "message_id", "business_connection_id")
     ordering = ("-created_at",)
     list_per_page = 50
