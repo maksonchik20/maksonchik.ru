@@ -3,22 +3,30 @@ from django.db import models
 
 
 class AdminChatFilter(models.Model):
-    """Привязка пользователя админки к chat_id: пользователь видит только Message с этими chat_id (можно несколько)."""
+    """Доступ пользователя админки к сообщениям по паре (chat_id, business_connection_id). Можно несколько записей."""
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="admin_chat_filters",
         verbose_name="Пользователь",
     )
-    chat_id = models.BigIntegerField(verbose_name="Chat id", help_text="Пользователь видит сообщения с этим chat_id")
+    chat_id = models.BigIntegerField(verbose_name="Chat id", help_text="Chat id из Telegram")
+    business_connection_id = models.CharField(
+        verbose_name="Business connection id",
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Если указан — доступ только к сообщениям с этим business_connection_id и chat_id. Пусто — все сообщения этого chat_id.",
+    )
 
     class Meta:
         verbose_name = "Доступ к чату (админка)"
         verbose_name_plural = "Доступ к чатам (админка)"
-        unique_together = [("user", "chat_id")]
+        unique_together = [("user", "chat_id", "business_connection_id")]
 
     def __str__(self):
-        return f"{self.user.username} → chat_id={self.chat_id}"
+        conn = f", {self.business_connection_id}" if self.business_connection_id else ""
+        return f"{self.user.username} → chat_id={self.chat_id}{conn}"
 
 
 class UserTg(models.Model):
