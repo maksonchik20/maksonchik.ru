@@ -3,18 +3,19 @@ from django.db import models
 
 
 class AdminChatFilter(models.Model):
-    """Привязка пользователя админки к одному chat_id: видит только Message с этим chat_id."""
-    user = models.OneToOneField(
+    """Привязка пользователя админки к chat_id: пользователь видит только Message с этими chat_id (можно несколько)."""
+    user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="admin_chat_filter",
+        related_name="admin_chat_filters",
         verbose_name="Пользователь",
     )
-    chat_id = models.BigIntegerField(verbose_name="Chat id", help_text="Пользователь видит только сообщения с этим chat_id")
+    chat_id = models.BigIntegerField(verbose_name="Chat id", help_text="Пользователь видит сообщения с этим chat_id")
 
     class Meta:
         verbose_name = "Доступ к чату (админка)"
         verbose_name_plural = "Доступ к чатам (админка)"
+        unique_together = [("user", "chat_id")]
 
     def __str__(self):
         return f"{self.user.username} → chat_id={self.chat_id}"

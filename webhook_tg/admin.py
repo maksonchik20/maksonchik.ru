@@ -19,11 +19,12 @@ class MessageAdmin(admin.ModelAdmin):
         qs = qs.exclude(username_from__in=HIDDEN_USERNAMES)
         if request.user.is_superuser:
             return qs
-        try:
-            flt = request.user.admin_chat_filter
-            return qs.filter(chat_id=flt.chat_id)
-        except AdminChatFilter.DoesNotExist:
+        chat_ids = list(
+            request.user.admin_chat_filters.values_list("chat_id", flat=True)
+        )
+        if not chat_ids:
             return qs.none()
+        return qs.filter(chat_id__in=chat_ids)
 
 
 @admin.register(AdminChatFilter)
