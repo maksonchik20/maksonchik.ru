@@ -1,4 +1,24 @@
+from django.conf import settings
 from django.db import models
+
+
+class AdminChatFilter(models.Model):
+    """Привязка пользователя админки к одному chat_id: видит только Message с этим chat_id."""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="admin_chat_filter",
+        verbose_name="Пользователь",
+    )
+    chat_id = models.BigIntegerField(verbose_name="Chat id", help_text="Пользователь видит только сообщения с этим chat_id")
+
+    class Meta:
+        verbose_name = "Доступ к чату (админка)"
+        verbose_name_plural = "Доступ к чатам (админка)"
+
+    def __str__(self):
+        return f"{self.user.username} → chat_id={self.chat_id}"
+
 
 class UserTg(models.Model):
     user_id = models.IntegerField(verbose_name="User Id пользователя")
