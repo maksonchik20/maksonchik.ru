@@ -11,7 +11,7 @@ from .telegram import (
     send_video,
     send_document,
 )
-from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID
+from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID, ALLOWED_SEND_CHAT_IDS
 
 
 @csrf_exempt
@@ -38,6 +38,8 @@ def webhook_tg(request: HttpRequest):
         if text == "/start" and is_message_to_bot(data):
             init_user_bot(user_id=from_user_id, chat_id=chat_id, username=username, first_name=first_name)
             send_meeting_message(chat_id)
+        elif is_message_to_bot(data) and _handle_send_media_command(chat_id, text):
+            pass
         elif is_edited_message(data):
             business_connection = get_business_connection(msg)
             if (business_connection.user_chat_id != chat_id):
@@ -61,6 +63,38 @@ def webhook_tg(request: HttpRequest):
 
 def send_meeting_message(chat_id):
     send_photo(chat_id=chat_id, photo_id=START_PHOTO_ID, caption=START_TEXT)
+
+
+def _handle_send_media_command(chat_id, text: str) -> bool:
+    """
+    Обработка /send_photo file_id, /send_audio file_id, /send_video file_id.
+    Разрешено только для chat_id из ALLOWED_SEND_CHAT_IDS.
+    Возвращает True, если команда обработана.
+    """
+    if not text or not text.strip().startswith("/"):
+        return False
+    chat_id_int = int(chat_id) if chat_id is not None else None
+    if chat_id_int not in ALLOWED_SEND_CHAT_IDS:
+        return False
+    parts = text.strip().split(None, 1)
+    command = (parts[0] or "").lower()
+    file_id = (parts[1] or "").strip() if len(parts) > 1 else ""
+    if not file_id:
+        tg_send_message(
+            chat_id,
+            "Укажите file_id после команды, например:\n/send_photo <i>file_id</i>",
+        )
+        return True
+    if command == "/send_photo":
+        send_photo(chat_id, file_id)
+        return True
+    if command == "/send_audio":
+        send_audio(chat_id, file_id)
+        return True
+    if command == "/send_video":
+        send_video(chat_id, file_id)
+        return True
+    return False
 
 
 def _extract_file_data(msg):

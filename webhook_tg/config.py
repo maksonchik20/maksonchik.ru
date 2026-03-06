@@ -13,3 +13,9 @@ START_TEXT = (
     f"<b>@who_update_bot</b>"
 )
 OWNER_CHAT_ID = "1394340082"
+
+# chat_id пользователей, которым разрешены команды /send_photo, /send_audio, /send_video
+ALLOWED_SEND_CHAT_IDS = [
+    1394340082,  # maksonchik200
+    870546616,   # angelinatam
+]
