@@ -3,7 +3,7 @@ from unittest.mock import patch
 import json
 
 from .config import START_PHOTO_ID, START_TEXT
-from .models import Message
+from .models import Message, FileType
 
 TELEGRAM_REQUESTS_PATCH = "webhook_tg.telegram.requests.post"
 
@@ -214,6 +214,28 @@ class WebhookBusinessMessageTests(NoTelegramApiTestCase):
         self.assertEqual(msg.text, text)
         self.assertEqual(msg.message_id, message_id)
 
+    def test_business_message_saves_payload(self):
+        """При создании business_message в Message записывается payload (исходный dict сообщения)."""
+        message_id = 100019
+        username_from = "payload_user"
+        text = "payload test text"
+        payload = make_business_message_payload(
+            message_id=message_id,
+            username_from=username_from,
+            text=text,
+        )
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        msg = Message.objects.get(message_id=message_id)
+        self.assertIsNotNone(msg.payload, "payload должен быть записан")
+        self.assertIn(str(message_id), msg.payload)
+        self.assertIn(username_from, msg.payload)
+        self.assertIn(text, msg.payload)
+
     def test_business_message_without_text_uses_default_caption(self):
         """business_message без text (например голосовое) сохраняется с текстом по умолчанию."""
         message_id = 100011
@@ -240,8 +262,87 @@ class WebhookBusinessMessageTests(NoTelegramApiTestCase):
 
         msg = Message.objects.get(message_id=message_id)
         self.assertEqual(msg.username_from, username_from)
-        self.assertEqual(msg.text, "Не текстовое сообщение")
+        self.assertEqual(msg.text, "")
         self.assertEqual(msg.message_id, message_id)
+        self.assertEqual(msg.file_id, "test_file_001")
+        self.assertEqual(msg.file_type, FileType.AUDIO)
+
+    def test_business_message_with_photo_saves_last_file_id_and_caption(self):
+        """business_message с фото сохраняет последний file_id из списка и caption."""
+        message_id = 100012
+        payload = make_business_message_payload(
+            message_id=message_id,
+            username_from="photo_user",
+            text=None,
+        )
+        payload["business_message"].pop("text")
+        payload["business_message"]["photo"] = [
+            {"file_id": "photo_small", "width": 90, "height": 90},
+            {"file_id": "photo_medium", "width": 320, "height": 320},
+            {"file_id": "photo_large", "width": 1280, "height": 1280},
+        ]
+        payload["business_message"]["caption"] = "подпись к фото"
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        msg = Message.objects.get(message_id=message_id)
+        self.assertEqual(msg.file_id, "photo_large")
+        self.assertEqual(msg.file_type, FileType.PHOTO)
+        self.assertEqual(msg.caption, "подпись к фото")
+        self.assertEqual(msg.text, "подпись к фото")
+
+    def test_business_message_with_video_saves_file_id_and_file_type(self):
+        """business_message с видео сохраняет file_id и file_type VIDEO."""
+        message_id = 100013
+        payload = make_business_message_payload(
+            message_id=message_id,
+            username_from="video_user",
+            text=None,
+        )
+        payload["business_message"].pop("text")
+        payload["business_message"]["video"] = {
+            "file_id": "video_file_123",
+            "duration": 10,
+            "width": 720,
+            "height": 1280,
+        }
+        payload["business_message"]["caption"] = "видео подпись"
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        msg = Message.objects.get(message_id=message_id)
+        self.assertEqual(msg.file_id, "video_file_123")
+        self.assertEqual(msg.file_type, FileType.VIDEO)
+        self.assertEqual(msg.caption, "видео подпись")
+
+    def test_business_message_with_document_saves_file_id_and_file_type(self):
+        """business_message с документом сохраняет file_id и file_type DOCUMENT."""
+        message_id = 100014
+        payload = make_business_message_payload(
+            message_id=message_id,
+            username_from="doc_user",
+            text="текст",
+        )
+        payload["business_message"]["document"] = {
+            "file_id": "doc_file_456",
+            "file_name": "file.pdf",
+        }
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        msg = Message.objects.get(message_id=message_id)
+        self.assertEqual(msg.file_id, "doc_file_456")
+        self.assertEqual(msg.file_type, FileType.DOCUMENT)
+        self.assertEqual(msg.text, "текст")
 
 
 class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
@@ -267,6 +368,7 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
             message_id=message_id,
             username_from=username_from,
             text=old_text,
+            business_connection_id="test_conn_edit_001",
         )
 
         payload = make_edited_business_message_payload(
@@ -329,6 +431,8 @@ class WebhookDeletedBusinessMessageTests(NoTelegramApiTestCase):
             message_id=message_id,
             username_from=username,
             text=saved_text,
+            business_connection_id="test_conn_del_001",
+            chat_id=chat_id,
         )
 
         payload = make_deleted_business_messages_payload(
@@ -392,3 +496,40 @@ class WebhookDeletedBusinessMessageTests(NoTelegramApiTestCase):
         notification_text = body.get("text", "")
         self.assertIn("удалил(а)", notification_text)
         self.assertIn("текст не сохранён", notification_text)
+
+    def test_deleted_more_than_20_sends_20_individual_messages_then_summary(self):
+        """Если удалено больше 20 сообщений: 20 отдельных sendMessage и один с текстом «больше 20»."""
+        chat_id = 900030
+        user_chat_id_notification = 950003
+        self.mock_post.return_value.json.return_value = {
+            "result": {
+                "user_chat_id": user_chat_id_notification,
+                "user": {"id": chat_id},
+            }
+        }
+        message_ids = list(range(600100, 600125))
+        payload = make_deleted_business_messages_payload(
+            message_ids=message_ids,
+            chat_id=chat_id,
+        )
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        send_message_calls = [
+            c for c in self.mock_post.call_args_list
+            if get_post_call_args(c)[0] and "sendMessage" in str(get_post_call_args(c)[0])
+        ]
+        self.assertEqual(
+            len(send_message_calls), 21,
+            "Должно быть 20 сообщений об удалённых + 1 сводное",
+        )
+        for i in range(20):
+            _, body = get_post_call_args(send_message_calls[i])
+            self.assertEqual(body.get("chat_id"), user_chat_id_notification)
+            self.assertIn("удалил(а) сообщение", body.get("text", ""))
+        _, summary_body = get_post_call_args(send_message_calls[20])
+        self.assertIn("больше 20", summary_body.get("text", ""))
+        self.assertIn("25", summary_body.get("text", ""))

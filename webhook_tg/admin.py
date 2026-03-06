@@ -13,7 +13,8 @@ class MessageAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
     list_per_page = 50
 
-    readonly_fields = ("created_at",)
+    readonly_fields = ("created_at", )
+
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)

@@ -6,3 +6,5 @@ gunicorn.ctl
 env.py
 migrations
 sender.py
+audio.log
+gunicorn.log

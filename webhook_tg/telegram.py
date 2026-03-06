@@ -35,16 +35,50 @@ def get_business_connection(msg) -> BusinessConnection:
         user_id = user_id
         )
 
-def send_photo(text: str, chat_id: int, photo_id: str, timeout: int = 3) -> None:
+def send_photo(chat_id, photo_id: str, caption: str = "", timeout: int = 3) -> None:
+    """Отправка фото по file_id. caption — подпись к фото (HTML)."""
+    if not chat_id or not photo_id:
+        return
     url = f"{api_tg_url}/sendPhoto"
-    body = {}
-    body['chat_id'] = chat_id
-    body['caption'] = text
-    body['parse_mode'] = "HTML"
-    body['disable_web_page_preview'] = True
-    body['photo'] = photo_id
-    requests.post(
-        url,
-        json=body,
-        timeout=timeout,
-    )
+    body = {"chat_id": chat_id, "photo": photo_id}
+    if caption:
+        body["caption"] = caption
+        body["parse_mode"] = "HTML"
+        body["disable_web_page_preview"] = True
+    requests.post(url, json=body, timeout=timeout)
+
+
+def send_audio(chat_id, audio_file_id: str, caption: str = "", timeout: int = 3) -> None:
+    """Отправка аудио/голоса по file_id."""
+    if not chat_id or not audio_file_id:
+        return
+    url = f"{api_tg_url}/sendAudio"
+    body = {"chat_id": chat_id, "audio": audio_file_id}
+    if caption:
+        body["caption"] = caption
+        body["parse_mode"] = "HTML"
+    requests.post(url, json=body, timeout=timeout)
+
+
+def send_video(chat_id, video_file_id: str, caption: str = "", timeout: int = 3) -> None:
+    """Отправка видео по file_id."""
+    if not chat_id or not video_file_id:
+        return
+    url = f"{api_tg_url}/sendVideo"
+    body = {"chat_id": chat_id, "video": video_file_id}
+    if caption:
+        body["caption"] = caption
+        body["parse_mode"] = "HTML"
+    requests.post(url, json=body, timeout=timeout)
+
+
+def send_document(chat_id, document_file_id: str, caption: str = "", timeout: int = 3) -> None:
+    """Отправка документа по file_id."""
+    if not chat_id or not document_file_id:
+        return
+    url = f"{api_tg_url}/sendDocument"
+    body = {"chat_id": chat_id, "document": document_file_id}
+    if caption:
+        body["caption"] = caption
+        body["parse_mode"] = "HTML"
+    requests.post(url, json=body, timeout=timeout)

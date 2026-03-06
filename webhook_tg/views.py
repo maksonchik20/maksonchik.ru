@@ -1,9 +1,16 @@
 from django.http import HttpResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 import json
-from .models import UserTg, Message
+from .models import UserTg, Message, FileType
 import html
-from .telegram import tg_send_message, get_business_connection, send_photo
+from .telegram import (
+    tg_send_message,
+    get_business_connection,
+    send_photo,
+    send_audio,
+    send_video,
+    send_document,
+)
 from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID
 
 
@@ -23,7 +30,7 @@ def webhook_tg(request: HttpRequest):
             print("СООБЩЕНИЕ БЕЗ ТЕКСТА")
             if is_edited_message(data) or is_new_message(data):
                 create_message(msg)
-            raise NotImplementedError()
+            return HttpResponse("Success")
         from_user_id = msg.get("from", {}).get("id")
         chat_id = msg.get("chat", {}).get("id")
         username = msg.get("from", {}).get("username")
@@ -38,7 +45,7 @@ def webhook_tg(request: HttpRequest):
         elif is_deleted_message(data):
             business_connection = get_business_connection(msg)
             if (business_connection.user_chat_id != chat_id):
-                tg_send_message(chat_id=business_connection.user_chat_id, text=build_message_delete(msg))
+                _send_deleted_notifications(msg, business_connection.user_chat_id)
         if is_edited_message(data) or is_new_message(data):
             create_message(msg)
 
@@ -52,54 +59,186 @@ def webhook_tg(request: HttpRequest):
     
     return HttpResponse(f"Success")
 
-def send_meeting_message(chat_id: str):
-    send_photo(chat_id=chat_id, text=START_TEXT, photo_id=START_PHOTO_ID)
+def send_meeting_message(chat_id):
+    send_photo(chat_id=chat_id, photo_id=START_PHOTO_ID, caption=START_TEXT)
+
+
+def _extract_file_data(msg):
+    """
+    Извлекает file_id, file_type и caption из payload сообщения.
+    В payload приходит максимум один тип файла. У фото берётся последний file_id из списка.
+    """
+    file_id = None
+    file_type = FileType.UNKNOWN
+    caption = msg.get("caption", None)
+
+    if "photo" in msg and msg["photo"]:
+        file_type = FileType.PHOTO
+        file_id = msg["photo"][-1].get("file_id")
+    elif "voice" in msg:
+        file_type = FileType.AUDIO
+        file_id = msg["voice"].get("file_id")
+    elif "audio" in msg:
+        file_type = FileType.AUDIO
+        file_id = msg["audio"].get("file_id")
+    elif "video" in msg:
+        file_type = FileType.VIDEO
+        file_id = msg["video"].get("file_id")
+    elif "video_note" in msg:
+        file_type = FileType.VIDEO
+        file_id = msg["video_note"].get("file_id")
+    elif "document" in msg:
+        file_type = FileType.DOCUMENT
+        file_id = msg["document"].get("file_id")
+
+    return file_id, file_type, caption
+
 
 def create_message(msg):
     message_id = msg.get("message_id")
+    file_id, file_type, caption = _extract_file_data(msg)
+    text = msg.get("text")
+    if text is None and caption:
+        text = caption
+    if text is None:
+        text = ""
+
     try:
         m = Message.objects.get(message_id=message_id)
-        m.text = msg.get("text")
-        m.save(update_fields=["text"])
+        m.text = text
+        m.file_id = file_id
+        m.file_type = file_type or FileType.UNKNOWN
+        m.caption = caption
+        m.payload = str(msg)
+        m.save(update_fields=["text", "file_id", "file_type", "caption", "payload"])
     except Message.DoesNotExist:
         business_connection_id = msg.get("business_connection_id")
         username_from = msg.get("from", {}).get("username")
+        first_name = msg.get("from", {}).get("first_name")
         chat_id = msg.get("chat", {}).get("id")
         m = Message.objects.create(
-            business_connection_id = business_connection_id,
+            business_connection_id=business_connection_id,
             message_id=message_id,
             username_from=username_from,
+            first_name=first_name,
             chat_id=chat_id,
-            text=msg.get("text", "Не текстовое сообщение"),
+            text=text,
+            file_id=file_id,
+            file_type=file_type or FileType.UNKNOWN,
+            caption=caption,
+            payload=str(msg),
         )
 
-def build_message_delete(deleted: dict) -> str:
+def _build_deleted_caption(deleted: dict, message_id: int, text: str) -> str:
+    """Текст уведомления об удалении: кто удалил, id сообщения, содержимое."""
     chat = deleted.get("chat") or {}
     first_name = chat.get("first_name") or "Unknown"
     username = chat.get("username")
+    user_part = html.escape(first_name)
+    if username:
+        user_part += f" (@{html.escape(username)})"
+    old_text = text or "(текст не сохранён)"
+    return (
+        f"{user_part} удалил(а) сообщение (id={message_id}):\n"
+        f"<blockquote>{html.escape(old_text)}</blockquote>"
+    )
 
+
+def _send_file_by_type(chat_id, file_id: str, file_type: str, caption: str) -> None:
+    """Отправляет файл в чат в зависимости от file_type (PHOTO, AUDIO, VIDEO, DOCUMENT)."""
+    if file_type == FileType.PHOTO:
+        send_photo(chat_id, file_id, caption=caption)
+    elif file_type == FileType.AUDIO:
+        send_audio(chat_id, file_id, caption=caption)
+    elif file_type == FileType.VIDEO:
+        send_video(chat_id, file_id, caption=caption)
+    elif file_type == FileType.DOCUMENT:
+        send_document(chat_id, file_id, caption=caption)
+    else:
+        tg_send_message(chat_id, caption)
+
+
+def _send_deleted_notifications(deleted: dict, user_chat_id) -> None:
+    """
+    Находит удалённые сообщения в БД по message_ids и отправляет пользователю:
+    — если у сообщения есть file_id и тип медиа: отправляет файл (photo/audio/video/document) с подписью;
+    — иначе: отправляет текстовое уведомление.
+    Максимум 20 таких отправок, затем одно сообщение «больше 20 удалено».
+    """
+    chat = deleted.get("chat") or {}
+    business_connection_id = deleted.get("business_connection_id")
+    chat_id = chat.get("id")
     msg_ids = deleted.get("message_ids") or []
-    if not msg_ids:
-        return f"{html.escape(first_name)} удалил(а) сообщения (ids не пришли)."
-
-    known = Message.objects.filter(message_id__in=msg_ids)
-    known_map = {m.message_id: (m.text or "") for m in known}
-
+    first_name = chat.get("first_name") or "Unknown"
+    username = chat.get("username")
     user_part = html.escape(first_name)
     if username:
         user_part += f" (@{html.escape(username)})"
 
-    lines = [f"{user_part} удалил(а) {len(msg_ids)} сообщение(й):", ""]
+    if not msg_ids:
+        tg_send_message(user_chat_id, f"{user_part} удалил(а) сообщения (ids не пришли).")
+        return
+
+    known = Message.objects.filter(
+        message_id__in=msg_ids,
+        business_connection_id=business_connection_id,
+        chat_id=chat_id,
+    )
+    known_map = {m.message_id: m for m in known}
 
     for mid in msg_ids[:20]:
-        old_text = known_map.get(mid) or "(текст не сохранён)"
-        lines.append(f"<blockquote>{html.escape(old_text)}</blockquote>")
+        m = known_map.get(mid)
+        caption = _build_deleted_caption(deleted, mid, m.text if m else None)
+        if m and m.file_id and m.file_type and m.file_type != FileType.UNKNOWN:
+            _send_file_by_type(user_chat_id, m.file_id, m.file_type, caption)
+        else:
+            tg_send_message(user_chat_id, caption)
 
     if len(msg_ids) > 20:
-        lines.append(f"...и ещё {len(msg_ids) - 20} сообщений")
+        tg_send_message(user_chat_id, f"Было удалено больше 20 сообщений (всего {len(msg_ids)}).")
 
-    lines.append(f"<b>@{html.escape('who_update_bot')}</b>")
-    return "\n".join(lines)
+
+def _build_deleted_message_parts(deleted: dict) -> list[str]:
+    """
+    Формирует список строк для отправки: до 20 отдельных сообщений об удалённых,
+    затем одно сообщение о том, что удалено больше 20. (Используется для тестов и build_message_delete.)
+    """
+    chat = deleted.get("chat") or {}
+    first_name = chat.get("first_name") or "Unknown"
+    username = chat.get("username")
+    user_part = html.escape(first_name)
+    if username:
+        user_part += f" (@{html.escape(username)})"
+
+    msg_ids = deleted.get("message_ids") or []
+    if not msg_ids:
+        return [f"{user_part} удалил(а) сообщения (ids не пришли)."]
+
+    business_connection_id = deleted.get("business_connection_id")
+    chat_id = deleted.get("chat", {}).get("id")
+    known = Message.objects.filter(
+        message_id__in=msg_ids,
+        business_connection_id=business_connection_id,
+        chat_id=chat_id,
+    )
+    known_map = {m.message_id: (m.text or "") for m in known}
+
+    parts = []
+    for mid in msg_ids[:20]:
+        old_text = known_map.get(mid) or "(текст не сохранён)"
+        parts.append(
+            f"{user_part} удалил(а) сообщение (id={mid}):\n"
+            f"<blockquote>{html.escape(old_text)}</blockquote>"
+        )
+    if len(msg_ids) > 20:
+        parts.append(f"Было удалено больше 20 сообщений (всего {len(msg_ids)}).")
+    return parts
+
+
+def build_message_delete(deleted: dict) -> str:
+    """Один общий текст (для обратной совместимости)."""
+    parts = _build_deleted_message_parts(deleted)
+    return "\n\n".join(parts)
 
 def build_message_update(msg):
     fr = msg.get("from") or {}
