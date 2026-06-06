@@ -12,7 +12,7 @@ from .telegram import (
     send_document,
 )
 from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID, ALLOWED_SEND_CHAT_IDS
-from inner_models.BusinessConnection import BusinessConnection
+from .inner_models.BusinessConnection import BusinessConnection
 
 
 @csrf_exempt
@@ -206,7 +206,7 @@ def _send_deleted_notifications(deleted: dict, business_connection: BusinessConn
     msg_ids = deleted.get("message_ids") or []
     first_name = chat.get("first_name") or "Unknown"
     username = chat.get("username")
-    # if username == 
+
     user_part = html.escape(first_name)
     if username:
         user_part += f" (@{html.escape(username)})"
