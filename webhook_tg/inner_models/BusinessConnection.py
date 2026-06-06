@@ -5,3 +5,4 @@ from typing import Optional
 class BusinessConnection:
     user_id: Optional[int] = None
     user_chat_id: Optional[int] = None
+    username: Optional[str] = None

@@ -6,8 +6,10 @@ from .inner_models.BusinessConnection import BusinessConnection
 
 api_tg_url = f"https://api.telegram.org/bot{TOKEN_BOT}"
 
-def tg_send_message(chat_id: str, text: str, timeout: int = 3) -> None:
+def tg_send_message(chat_id: str, text: str, timeout: int = 1) -> None:
     if not chat_id:
+        return
+    if text is None:
         return
 
     url = f"{api_tg_url}/sendMessage"
@@ -30,12 +32,14 @@ def get_business_connection(msg) -> BusinessConnection:
     print("business_connection", ans)
     user_chat_id = ans.get("result").get("user_chat_id")
     user_id = ans.get("result", {}).get("user", {}).get("id")
+    username = ans.get("result", {}).get("user", {}).get("username")
     return BusinessConnection(
         user_chat_id = user_chat_id,
-        user_id = user_id
-        )
+        user_id = user_id,
+        username = username
+    )
 
-def send_photo(chat_id, photo_id: str, caption: str = "", timeout: int = 3) -> None:
+def send_photo(chat_id, photo_id: str, caption: str = "", timeout: int = 1) -> None:
     """Отправка фото по file_id. caption — подпись к фото (HTML)."""
     if not chat_id or not photo_id:
         return
@@ -48,7 +52,7 @@ def send_photo(chat_id, photo_id: str, caption: str = "", timeout: int = 3) -> N
     requests.post(url, json=body, timeout=timeout)
 
 
-def send_audio(chat_id, audio_file_id: str, caption: str = "", timeout: int = 3) -> None:
+def send_audio(chat_id, audio_file_id: str, caption: str = "", timeout: int = 1) -> None:
     """Отправка аудио/голоса по file_id."""
     if not chat_id or not audio_file_id:
         return
@@ -60,7 +64,7 @@ def send_audio(chat_id, audio_file_id: str, caption: str = "", timeout: int = 3)
     requests.post(url, json=body, timeout=timeout)
 
 
-def send_video(chat_id, video_file_id: str, caption: str = "", timeout: int = 3) -> None:
+def send_video(chat_id, video_file_id: str, caption: str = "", timeout: int = 1) -> None:
     """Отправка видео по file_id."""
     if not chat_id or not video_file_id:
         return
@@ -72,7 +76,7 @@ def send_video(chat_id, video_file_id: str, caption: str = "", timeout: int = 3)
     requests.post(url, json=body, timeout=timeout)
 
 
-def send_document(chat_id, document_file_id: str, caption: str = "", timeout: int = 3) -> None:
+def send_document(chat_id, document_file_id: str, caption: str = "", timeout: int = 1) -> None:
     """Отправка документа по file_id."""
     if not chat_id or not document_file_id:
         return

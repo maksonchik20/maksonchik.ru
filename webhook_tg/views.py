@@ -12,6 +12,7 @@ from .telegram import (
     send_document,
 )
 from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID, ALLOWED_SEND_CHAT_IDS
+from inner_models.BusinessConnection import BusinessConnection
 
 
 @csrf_exempt
@@ -43,11 +44,11 @@ def webhook_tg(request: HttpRequest):
         elif is_edited_message(data):
             business_connection = get_business_connection(msg)
             if (business_connection.user_chat_id != chat_id):
-                tg_send_message(chat_id=business_connection.user_chat_id, text=build_message_update(msg))
+                tg_send_message(chat_id=business_connection.user_chat_id, text=build_message_update(msg, business_connection))
         elif is_deleted_message(data):
             business_connection = get_business_connection(msg)
             if (business_connection.user_chat_id != chat_id):
-                _send_deleted_notifications(msg, business_connection.user_chat_id)
+                _send_deleted_notifications(msg, business_connection)
         if is_edited_message(data) or is_new_message(data):
             create_message(msg)
 
@@ -192,7 +193,7 @@ def _send_file_by_type(chat_id, file_id: str, file_type: str, caption: str) -> N
         tg_send_message(chat_id, caption)
 
 
-def _send_deleted_notifications(deleted: dict, user_chat_id) -> None:
+def _send_deleted_notifications(deleted: dict, business_connection: BusinessConnection) -> None:
     """
     Находит удалённые сообщения в БД по message_ids и отправляет пользователю:
     — если у сообщения есть file_id и тип медиа: отправляет файл (photo/audio/video/document) с подписью;
@@ -205,12 +206,13 @@ def _send_deleted_notifications(deleted: dict, user_chat_id) -> None:
     msg_ids = deleted.get("message_ids") or []
     first_name = chat.get("first_name") or "Unknown"
     username = chat.get("username")
+    # if username == 
     user_part = html.escape(first_name)
     if username:
         user_part += f" (@{html.escape(username)})"
 
     if not msg_ids:
-        tg_send_message(user_chat_id, f"{user_part} удалил(а) сообщения (ids не пришли).")
+        tg_send_message(business_connection.user_chat_id, f"{user_part} удалил(а) сообщения (ids не пришли).")
         return
 
     known = Message.objects.filter(
@@ -224,18 +226,18 @@ def _send_deleted_notifications(deleted: dict, user_chat_id) -> None:
         m = known_map.get(mid)
         caption = _build_deleted_caption(deleted, mid, m.text if m else None)
         if m and m.file_id and m.file_type and m.file_type != FileType.UNKNOWN:
-            _send_file_by_type(user_chat_id, m.file_id, m.file_type, caption)
+            _send_file_by_type(business_connection.user_chat_id, m.file_id, m.file_type, caption)
         else:
-            tg_send_message(user_chat_id, caption)
+            tg_send_message(business_connection.user_chat_id, caption)
 
-    if len(msg_ids) > 20:
-        tg_send_message(user_chat_id, f"Было удалено больше 20 сообщений (всего {len(msg_ids)}).")
+    if len(msg_ids) > 10:
+        tg_send_message(business_connection.user_chat_id, f"Было удалено больше 10 сообщений (всего {len(msg_ids)}).")
 
 
 def _build_deleted_message_parts(deleted: dict) -> list[str]:
     """
-    Формирует список строк для отправки: до 20 отдельных сообщений об удалённых,
-    затем одно сообщение о том, что удалено больше 20. (Используется для тестов и build_message_delete.)
+    Формирует список строк для отправки: до 10 отдельных сообщений об удалённых,
+    затем одно сообщение о том, что удалено больше 10. (Используется для тестов и build_message_delete.)
     """
     chat = deleted.get("chat") or {}
     first_name = chat.get("first_name") or "Unknown"
@@ -265,7 +267,7 @@ def _build_deleted_message_parts(deleted: dict) -> list[str]:
             f"<blockquote>{html.escape(old_text)}</blockquote>"
         )
     if len(msg_ids) > 20:
-        parts.append(f"Было удалено больше 20 сообщений (всего {len(msg_ids)}).")
+        parts.append(f"Было удалено больше 10 сообщений (всего {len(msg_ids)}).")
     return parts
 
 
@@ -274,10 +276,12 @@ def build_message_delete(deleted: dict) -> str:
     parts = _build_deleted_message_parts(deleted)
     return "\n\n".join(parts)
 
-def build_message_update(msg):
+def build_message_update(msg: dict, business_connection: BusinessConnection):
     fr = msg.get("from") or {}
     first_name = fr.get("first_name") or "Unknown"
     username = fr.get("username")
+    if business_connection.username == username:
+        return None
 
     message_id = msg.get("message_id")
     old = Message.objects.filter(message_id=message_id).first()
