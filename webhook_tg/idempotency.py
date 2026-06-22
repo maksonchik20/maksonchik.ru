@@ -25,16 +25,28 @@ def acquire_webhook_update(update_id) -> bool:
         return False
 
 
-def acquire_edit_notification(msg) -> bool:
-    """
-    Регистрирует уведомление об редактировании. Один и тот же edit приходит
-    по двум business_connection — отправляем только один раз.
-    """
+def is_edit_notification_sent(msg) -> bool:
     fr = msg.get("from") or {}
     editor_id = fr.get("id")
     edit_date = msg.get("edit_date")
     if editor_id is None or edit_date is None:
-        return True
+        return False
+
+    text_hash = hashlib.sha256((msg.get("text") or "").encode()).hexdigest()[:16]
+    return EditNotificationSent.objects.filter(
+        editor_id=editor_id,
+        edit_date=edit_date,
+        text_hash=text_hash,
+    ).exists()
+
+
+def mark_edit_notification_sent(msg) -> None:
+    """Записывает успешную отправку. Вызывается только после ok от Telegram."""
+    fr = msg.get("from") or {}
+    editor_id = fr.get("id")
+    edit_date = msg.get("edit_date")
+    if editor_id is None or edit_date is None:
+        return
 
     text_hash = hashlib.sha256((msg.get("text") or "").encode()).hexdigest()[:16]
     try:
@@ -44,6 +56,5 @@ def acquire_edit_notification(msg) -> bool:
                 edit_date=edit_date,
                 text_hash=text_hash,
             )
-        return True
     except IntegrityError:
-        return False
+        pass

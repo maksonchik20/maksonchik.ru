@@ -13,7 +13,7 @@ from .telegram import (
 )
 from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID, ALLOWED_SEND_CHAT_IDS
 from .inner_models.BusinessConnection import BusinessConnection
-from .idempotency import acquire_webhook_update, acquire_edit_notification
+from .idempotency import acquire_webhook_update, is_edit_notification_sent, mark_edit_notification_sent
 
 
 @csrf_exempt
@@ -333,11 +333,12 @@ def _send_edit_notification(msg: dict, business_connection: BusinessConnection) 
     recipient = _edit_notification_recipient(msg, business_connection)
     if recipient is None:
         return
-    if not acquire_edit_notification(msg):
+    if is_edit_notification_sent(msg):
         return
 
     notification = build_message_update(msg, business_connection)
-    tg_send_message(chat_id=recipient, text=notification)
+    if tg_send_message(chat_id=recipient, text=notification):
+        mark_edit_notification_sent(msg)
 
 def init_user_bot(user_id: int, chat_id: int, username: str, first_name: str):
     user, created = UserTg.objects.get_or_create(
