@@ -321,12 +321,11 @@ def _edit_notification_recipient(msg: dict, business_connection: BusinessConnect
     fr = msg.get("from") or {}
     editor_username = fr.get("username")
 
-    # Владелец business-аккаунта редактировал своё сообщение — себе не отправляем,
-    # только собеседнику в этом чате.
+    # Уведомляем только владельца business-подключения (он подключил бота).
+    # Собеседнику напрямую не пишем — у него может не быть чата с ботом.
     if business_connection.username == editor_username:
-        return msg_chat_id
+        return None
 
-    # Редактировал кто-то другой — уведомляем владельца business-аккаунта.
     return business_connection.user_chat_id
 
 

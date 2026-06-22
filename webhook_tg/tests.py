@@ -413,8 +413,8 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
         self.assertIn("New:", notification_text)
         self.assertIn(new_text, notification_text)
 
-    def test_edited_business_message_notifies_partner_when_owner_edits(self):
-        """Когда владелец business-аккаунта редактирует сообщение в чате с собеседником — уведомление уходит собеседнику."""
+    def test_edited_business_message_skips_notification_when_owner_edits(self):
+        """Когда владелец business-аккаунта редактирует — себе и собеседнику не шлём (только через чужое подключение)."""
         message_id = 400011
         old_text = "аоаоаоа"
         new_text = "бобобобо"
@@ -453,18 +453,16 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
         )
         self.assertEqual(response.status_code, 200)
 
-        self.mock_post.return_value.json.return_value = {"ok": True, "result": {"message_id": 1}}
+        from webhook_tg.models import TelegramOutbox
+        self.assertEqual(TelegramOutbox.objects.count(), 0)
+
         process_outbox()
 
         send_message_calls = [
             c for c in self.mock_post.call_args_list
             if get_post_call_args(c)[0] and "sendMessage" in str(get_post_call_args(c)[0])
         ]
-        self.assertEqual(len(send_message_calls), 1)
-        _, body = get_post_call_args(send_message_calls[0])
-        self.assertEqual(body.get("chat_id"), partner_chat_id)
-        self.assertIn(old_text, body.get("text", ""))
-        self.assertIn(new_text, body.get("text", ""))
+        self.assertEqual(len(send_message_calls), 0)
 
 
 class WebhookDeletedBusinessMessageTests(NoTelegramApiTestCase):

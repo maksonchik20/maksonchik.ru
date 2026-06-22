@@ -17,6 +17,18 @@ MAX_BACKOFF_SECONDS = 3600
 INITIAL_BACKOFF_SECONDS = 30
 OWNER_ALERT_AFTER_ATTEMPTS = 6
 
+PERMANENT_SEND_ERRORS = (
+    "bot can't initiate conversation with a user",
+    "bot was blocked by the user",
+    "user is deactivated",
+    "chat not found",
+)
+
+
+def _is_permanent_send_error(error: str) -> bool:
+    lower = (error or "").lower()
+    return any(phrase in lower for phrase in PERMANENT_SEND_ERRORS)
+
 
 def edit_notification_dedup_key(msg) -> str | None:
     fr = msg.get("from") or {}
@@ -99,6 +111,17 @@ def process_outbox(*, limit: int = 50) -> dict:
             item.delete()
             stats["sent"] += 1
             logger.info("Outbox sent id=%s method=%s chat_id=%s", pk, item.method, item.chat_id)
+            continue
+
+        if _is_permanent_send_error(error):
+            logger.warning(
+                "Outbox dropped id=%s chat_id=%s permanent error=%s",
+                pk,
+                item.chat_id,
+                error,
+            )
+            item.delete()
+            stats["failed"] += 1
             continue
 
         new_attempts = item.attempts + 1
