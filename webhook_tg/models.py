@@ -50,13 +50,25 @@ class FileType(models.TextChoices):
     DOCUMENT = "DOCUMENT", "Документ"
 
 
+class WebhookUpdate(models.Model):
+    update_id = models.BigIntegerField(verbose_name="Telegram update_id", unique=True, db_index=True)
+    processed_at = models.DateTimeField(verbose_name="Обработано", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Обработанный webhook"
+        verbose_name_plural = "Обработанные webhook"
+
+    def __str__(self):
+        return str(self.update_id)
+
+
 class Message(models.Model):
     business_connection_id = models.CharField(verbose_name="Business connection id", default="", blank=True, null=True, max_length=255)
-    message_id = models.IntegerField(verbose_name="Message Id", unique=True)
+    message_id = models.IntegerField(verbose_name="Message Id")
     username_from = models.CharField(verbose_name="Username sender", default="", blank=True, null=True, max_length=255)
     first_name = models.CharField(verbose_name="First name sender", default="", blank=True, null=True, max_length=255)
     text = models.TextField(verbose_name="Text", default="", blank=True, null=True)
-    chat_id = models.IntegerField(verbose_name="Chat id", blank=True, null=True)
+    chat_id = models.BigIntegerField(verbose_name="Chat id")
     file_id = models.CharField(verbose_name="File id", max_length=255, blank=True, null=True)
     file_type = models.CharField(
         verbose_name="Тип файла",
@@ -76,3 +88,9 @@ class Message(models.Model):
     class Meta:
         verbose_name = "Сообщение"
         verbose_name_plural = "Сообщения"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["chat_id", "message_id"],
+                name="webhook_tg_message_chat_message_id_uniq",
+            ),
+        ]

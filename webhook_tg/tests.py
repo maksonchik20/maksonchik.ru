@@ -100,9 +100,10 @@ def make_deleted_business_messages_payload(
     }
 
 
-def make_start_payload(chat_id=600001, user_id=700001, username="testuser"):
+def make_start_payload(chat_id=600001, user_id=700001, username="testuser", update_id=100):
     """Payload Telegram для сообщения /start боту (message, не business_message)."""
     return {
+        "update_id": update_id,
         "message": {
             "message_id": 1,
             "from": {"id": user_id, "username": username, "first_name": "Test"},
@@ -209,7 +210,7 @@ class WebhookBusinessMessageTests(NoTelegramApiTestCase):
         )
         self.assertEqual(response.status_code, 200)
 
-        msg = Message.objects.get(message_id=message_id)
+        msg = Message.objects.get(chat_id=300001, message_id=message_id)
         self.assertEqual(msg.username_from, username_from)
         self.assertEqual(msg.text, text)
         self.assertEqual(msg.message_id, message_id)
@@ -230,7 +231,7 @@ class WebhookBusinessMessageTests(NoTelegramApiTestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
-        msg = Message.objects.get(message_id=message_id)
+        msg = Message.objects.get(chat_id=300001, message_id=message_id)
         self.assertIsNotNone(msg.payload, "payload должен быть записан")
         self.assertIn(str(message_id), msg.payload)
         self.assertIn(username_from, msg.payload)
@@ -260,7 +261,7 @@ class WebhookBusinessMessageTests(NoTelegramApiTestCase):
         )
         self.assertEqual(response.status_code, 200)
 
-        msg = Message.objects.get(message_id=message_id)
+        msg = Message.objects.get(chat_id=300001, message_id=message_id)
         self.assertEqual(msg.username_from, username_from)
         self.assertEqual(msg.text, "")
         self.assertEqual(msg.message_id, message_id)
@@ -288,7 +289,7 @@ class WebhookBusinessMessageTests(NoTelegramApiTestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
-        msg = Message.objects.get(message_id=message_id)
+        msg = Message.objects.get(chat_id=300001, message_id=message_id)
         self.assertEqual(msg.file_id, "photo_large")
         self.assertEqual(msg.file_type, FileType.PHOTO)
         self.assertEqual(msg.caption, "подпись к фото")
@@ -316,7 +317,7 @@ class WebhookBusinessMessageTests(NoTelegramApiTestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
-        msg = Message.objects.get(message_id=message_id)
+        msg = Message.objects.get(chat_id=300001, message_id=message_id)
         self.assertEqual(msg.file_id, "video_file_123")
         self.assertEqual(msg.file_type, FileType.VIDEO)
         self.assertEqual(msg.caption, "видео подпись")
@@ -339,7 +340,7 @@ class WebhookBusinessMessageTests(NoTelegramApiTestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
-        msg = Message.objects.get(message_id=message_id)
+        msg = Message.objects.get(chat_id=300001, message_id=message_id)
         self.assertEqual(msg.file_id, "doc_file_456")
         self.assertEqual(msg.file_type, FileType.DOCUMENT)
         self.assertEqual(msg.text, "текст")
@@ -366,6 +367,7 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
 
         Message.objects.create(
             message_id=message_id,
+            chat_id=chat_id,
             username_from=username_from,
             text=old_text,
             business_connection_id="test_conn_edit_001",
@@ -387,7 +389,7 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
         self.assertEqual(response.status_code, 200)
 
         # В таблице Message текст обновлён на новый
-        msg = Message.objects.get(message_id=message_id)
+        msg = Message.objects.get(chat_id=chat_id, message_id=message_id)
         self.assertEqual(msg.text, new_text)
         self.assertEqual(msg.username_from, username_from)
 
@@ -533,3 +535,75 @@ class WebhookDeletedBusinessMessageTests(NoTelegramApiTestCase):
         _, summary_body = get_post_call_args(send_message_calls[20])
         self.assertIn("больше 20", summary_body.get("text", ""))
         self.assertIn("25", summary_body.get("text", ""))
+
+
+class WebhookIdempotencyTests(NoTelegramApiTestCase):
+    """Повторный webhook с тем же update_id не должен вызывать side effects."""
+
+    def test_duplicate_update_id_skips_processing(self):
+        payload = make_business_message_payload(
+            message_id=100050,
+            username_from="dup_user",
+            text="first",
+        )
+        payload["update_id"] = 9001
+
+        response1 = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response1.status_code, 200)
+        self.assertEqual(Message.objects.filter(chat_id=300001, message_id=100050).count(), 1)
+
+        payload["business_message"]["text"] = "second attempt"
+        response2 = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response2.status_code, 200)
+
+        msg = Message.objects.get(chat_id=300001, message_id=100050)
+        self.assertEqual(msg.text, "first")
+        self.assertFalse(self.mock_post.called)
+
+
+class WebhookCompositeMessageKeyTests(NoTelegramApiTestCase):
+    """message_id уникален внутри chat_id, но может повторяться в разных чатах."""
+
+    def test_same_message_id_in_different_chats_creates_two_rows(self):
+        shared_message_id = 777001
+
+        payload_a = make_business_message_payload(
+            message_id=shared_message_id,
+            username_from="user_a",
+            text="chat A",
+        )
+        payload_a["update_id"] = 9101
+        payload_a["business_message"]["chat"]["id"] = 300101
+
+        payload_b = make_business_message_payload(
+            message_id=shared_message_id,
+            username_from="user_b",
+            text="chat B",
+        )
+        payload_b["update_id"] = 9102
+        payload_b["business_message"]["chat"]["id"] = 300202
+
+        self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload_a),
+            content_type="application/json",
+        )
+        self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload_b),
+            content_type="application/json",
+        )
+
+        self.assertEqual(Message.objects.filter(message_id=shared_message_id).count(), 2)
+        msg_a = Message.objects.get(chat_id=300101, message_id=shared_message_id)
+        msg_b = Message.objects.get(chat_id=300202, message_id=shared_message_id)
+        self.assertEqual(msg_a.text, "chat A")
+        self.assertEqual(msg_b.text, "chat B")

@@ -13,6 +13,7 @@ from .telegram import (
 )
 from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID, ALLOWED_SEND_CHAT_IDS
 from .inner_models.BusinessConnection import BusinessConnection
+from .idempotency import acquire_webhook_update
 
 
 @csrf_exempt
@@ -24,6 +25,8 @@ def webhook_tg(request: HttpRequest):
     try:
         data = json.loads(request.body.decode("utf-8"))
         print(data)
+        if not acquire_webhook_update(data.get("update_id")):
+            return HttpResponse("Success")
         msg = data.get("business_message") or data.get("message") or data.get("edited_message") or \
               data.get("edited_business_message") or data.get("deleted_business_messages") or data.get("deleted_messages") or {}
         text = msg.get("text")
@@ -129,8 +132,25 @@ def _extract_file_data(msg):
     return file_id, file_type, caption
 
 
-def create_message(msg):
+def _message_chat_id(msg):
+    chat = msg.get("chat") or {}
+    return chat.get("id")
+
+
+def get_message_by_tg(msg):
+    chat_id = _message_chat_id(msg)
     message_id = msg.get("message_id")
+    if chat_id is None or message_id is None:
+        return None
+    return Message.objects.filter(chat_id=chat_id, message_id=message_id).first()
+
+
+def create_message(msg):
+    chat_id = _message_chat_id(msg)
+    message_id = msg.get("message_id")
+    if chat_id is None or message_id is None:
+        return
+
     file_id, file_type, caption = _extract_file_data(msg)
     text = msg.get("text")
     if text is None and caption:
@@ -138,31 +158,24 @@ def create_message(msg):
     if text is None:
         text = ""
 
-    try:
-        m = Message.objects.get(message_id=message_id)
-        m.text = text
-        m.file_id = file_id
-        m.file_type = file_type or FileType.UNKNOWN
-        m.caption = caption
-        m.payload = str(msg)
-        m.save(update_fields=["text", "file_id", "file_type", "caption", "payload"])
-    except Message.DoesNotExist:
-        business_connection_id = msg.get("business_connection_id")
-        username_from = msg.get("from", {}).get("username")
-        first_name = msg.get("from", {}).get("first_name")
-        chat_id = msg.get("chat", {}).get("id")
-        m = Message.objects.create(
-            business_connection_id=business_connection_id,
-            message_id=message_id,
-            username_from=username_from,
-            first_name=first_name,
-            chat_id=chat_id,
-            text=text,
-            file_id=file_id,
-            file_type=file_type or FileType.UNKNOWN,
-            caption=caption,
-            payload=str(msg),
-        )
+    business_connection_id = msg.get("business_connection_id")
+    username_from = msg.get("from", {}).get("username")
+    first_name = msg.get("from", {}).get("first_name")
+
+    Message.objects.update_or_create(
+        chat_id=chat_id,
+        message_id=message_id,
+        defaults={
+            "business_connection_id": business_connection_id,
+            "username_from": username_from,
+            "first_name": first_name,
+            "text": text,
+            "file_id": file_id,
+            "file_type": file_type or FileType.UNKNOWN,
+            "caption": caption,
+            "payload": str(msg),
+        },
+    )
 
 def _build_deleted_caption(deleted: dict, message_id: int, text: str) -> str:
     """Текст уведомления об удалении: кто удалил, id сообщения, содержимое."""
@@ -284,7 +297,7 @@ def build_message_update(msg: dict, business_connection: BusinessConnection):
         return None
 
     message_id = msg.get("message_id")
-    old = Message.objects.filter(message_id=message_id).first()
+    old = get_message_by_tg(msg)
     old_text = old.text if old is not None else "(Это сообщение было написано до подключения бота)"
     new_text = msg.get("text") or ""
 
