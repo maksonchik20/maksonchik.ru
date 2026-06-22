@@ -10,49 +10,51 @@ logger = logging.getLogger(__name__)
 
 api_tg_url = f"https://api.telegram.org/bot{TOKEN_BOT}"
 
+
+def dispatch_telegram_request(method: str, chat_id, payload: dict, timeout: int = 5) -> tuple[bool, str]:
+    if not chat_id:
+        return False, "empty chat_id"
+
+    url = f"{api_tg_url}/{method}"
+    body = {"chat_id": chat_id, **payload}
+    try:
+        response = requests.post(url, json=body, timeout=timeout)
+    except requests.RequestException as exc:
+        logger.error("%s failed chat_id=%s: %s", method, chat_id, exc)
+        return False, str(exc)
+
+    try:
+        result = response.json()
+    except ValueError:
+        error = f"invalid JSON status={response.status_code} body={response.text[:200]}"
+        logger.error("%s %s chat_id=%s", method, error, chat_id)
+        return False, error
+
+    if not result.get("ok"):
+        error = str(result.get("description") or result)
+        logger.error("%s API error chat_id=%s status=%s response=%s", method, chat_id, response.status_code, result)
+        return False, error
+
+    return True, ""
+
+
 def tg_send_message(chat_id: str, text: str, timeout: int = 5) -> bool:
     if not chat_id:
         return False
     if text is None:
         return False
 
-    url = f"{api_tg_url}/sendMessage"
-    body = {}
-    body['chat_id'] = chat_id
-    body['text'] = text
-    body['parse_mode'] = "HTML"
-    body['disable_web_page_preview'] = True
-    try:
-        response = requests.post(
-            url,
-            json=body,
-            timeout=timeout,
-        )
-    except requests.RequestException as exc:
-        logger.error("sendMessage failed chat_id=%s: %s", chat_id, exc)
-        return False
-
-    try:
-        payload = response.json()
-    except ValueError:
-        logger.error(
-            "sendMessage invalid JSON chat_id=%s status=%s body=%s",
-            chat_id,
-            response.status_code,
-            response.text[:500],
-        )
-        return False
-
-    if not payload.get("ok"):
-        logger.error(
-            "sendMessage API error chat_id=%s status=%s response=%s",
-            chat_id,
-            response.status_code,
-            payload,
-        )
-        return False
-
-    return True
+    ok, _ = dispatch_telegram_request(
+        "sendMessage",
+        chat_id,
+        {
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        },
+        timeout=timeout,
+    )
+    return ok
 
 def get_business_connection(msg) -> BusinessConnection:
     url = f"{api_tg_url}/getBusinessConnection"

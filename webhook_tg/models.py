@@ -63,6 +63,8 @@ class WebhookUpdate(models.Model):
 
 
 class EditNotificationSent(models.Model):
+    """Deprecated: заменено на TelegramOutbox с dedup_key."""
+
     editor_id = models.BigIntegerField(verbose_name="ID редактора")
     edit_date = models.BigIntegerField(verbose_name="edit_date из Telegram")
     text_hash = models.CharField(verbose_name="Хеш нового текста", max_length=16)
@@ -77,6 +79,41 @@ class EditNotificationSent(models.Model):
                 name="webhook_tg_edit_notification_uniq",
             ),
         ]
+
+
+class TelegramOutbox(models.Model):
+    class Method(models.TextChoices):
+        SEND_MESSAGE = "sendMessage", "sendMessage"
+        SEND_PHOTO = "sendPhoto", "sendPhoto"
+        SEND_AUDIO = "sendAudio", "sendAudio"
+        SEND_VIDEO = "sendVideo", "sendVideo"
+        SEND_DOCUMENT = "sendDocument", "sendDocument"
+
+    chat_id = models.BigIntegerField(verbose_name="Chat id")
+    method = models.CharField(
+        verbose_name="Метод Telegram API",
+        max_length=32,
+        choices=Method.choices,
+    )
+    payload = models.JSONField(verbose_name="Тело запроса (без chat_id)")
+    dedup_key = models.CharField(
+        verbose_name="Ключ дедупликации",
+        max_length=128,
+        blank=True,
+        null=True,
+        unique=True,
+    )
+    attempts = models.PositiveIntegerField(verbose_name="Попыток отправки", default=0)
+    next_attempt_at = models.DateTimeField(verbose_name="Следующая попытка", db_index=True)
+    last_error = models.TextField(verbose_name="Последняя ошибка", blank=True, default="")
+    created_at = models.DateTimeField(verbose_name="Создано", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Исходящее сообщение (очередь)"
+        verbose_name_plural = "Исходящие сообщения (очередь)"
+
+    def __str__(self):
+        return f"{self.method} → {self.chat_id} (attempts={self.attempts})"
 
 
 class Message(models.Model):

@@ -4,6 +4,7 @@ import json
 
 from .config import START_PHOTO_ID, START_TEXT
 from .models import Message, FileType
+from .outbox import process_outbox
 
 TELEGRAM_REQUESTS_PATCH = "webhook_tg.telegram.requests.post"
 
@@ -393,6 +394,9 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
         self.assertEqual(msg.text, new_text)
         self.assertEqual(msg.username_from, username_from)
 
+        self.mock_post.return_value.json.return_value = {"ok": True, "result": {"message_id": 1}}
+        process_outbox()
+
         send_message_calls = [
             c for c in self.mock_post.call_args_list
             if get_post_call_args(c)[0] and "sendMessage" in str(get_post_call_args(c)[0])
@@ -448,6 +452,8 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
+
+        process_outbox()
 
         send_message_calls = [
             c for c in self.mock_post.call_args_list

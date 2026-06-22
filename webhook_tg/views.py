@@ -1,7 +1,7 @@
 from django.http import HttpResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 import json
-from .models import UserTg, Message, FileType
+from .models import UserTg, Message, FileType, TelegramOutbox
 import html
 from .telegram import (
     tg_send_message,
@@ -13,7 +13,8 @@ from .telegram import (
 )
 from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID, ALLOWED_SEND_CHAT_IDS
 from .inner_models.BusinessConnection import BusinessConnection
-from .idempotency import acquire_webhook_update, is_edit_notification_sent, mark_edit_notification_sent
+from .idempotency import acquire_webhook_update
+from .outbox import enqueue_outbox, edit_notification_dedup_key
 
 
 @csrf_exempt
@@ -333,12 +334,18 @@ def _send_edit_notification(msg: dict, business_connection: BusinessConnection) 
     recipient = _edit_notification_recipient(msg, business_connection)
     if recipient is None:
         return
-    if is_edit_notification_sent(msg):
-        return
 
     notification = build_message_update(msg, business_connection)
-    if tg_send_message(chat_id=recipient, text=notification):
-        mark_edit_notification_sent(msg)
+    enqueue_outbox(
+        chat_id=recipient,
+        method=TelegramOutbox.Method.SEND_MESSAGE,
+        payload={
+            "text": notification,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        },
+        dedup_key=edit_notification_dedup_key(msg),
+    )
 
 def init_user_bot(user_id: int, chat_id: int, username: str, first_name: str):
     user, created = UserTg.objects.get_or_create(
