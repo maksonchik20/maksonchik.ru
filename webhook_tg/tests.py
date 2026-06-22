@@ -453,6 +453,7 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
         )
         self.assertEqual(response.status_code, 200)
 
+        self.mock_post.return_value.json.return_value = {"ok": True, "result": {"message_id": 1}}
         process_outbox()
 
         send_message_calls = [
