@@ -46,7 +46,7 @@ def delete_messages_without_chat_id(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("webhook_tg", "0014_alter_message_text"),
+        ("webhook_tg", "0010_message_caption_message_file_id_message_file_type_and_more"),
     ]
 
     operations = [
