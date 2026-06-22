@@ -1,0 +1,11 @@
+<script>
+(function () {
+    function scrollMessagesToBottom() {
+        var container = document.getElementById('wu-chat-messages');
+        if (container) {
+            container.scrollTop = container.scrollHeight;
+        }
+    }
+    document.addEventListener('DOMContentLoaded', scrollMessagesToBottom);
+})();
+</script>

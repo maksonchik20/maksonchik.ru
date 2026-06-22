@@ -1,0 +1,76 @@
+{% extends "admin/change_list.html" %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <style>
+        .wu-bot-chat {
+            max-width: 960px;
+            margin: 0 0 24px;
+            padding: 16px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+        }
+        .wu-bot-chat h2 {
+            margin: 0 0 8px;
+            font-size: 1.1rem;
+        }
+        .wu-bot-chat-back {
+            display: inline-block;
+            margin-bottom: 12px;
+            font-size: 0.9rem;
+        }
+        #wu-chat-messages {
+            max-height: 70vh;
+            overflow-y: auto;
+            padding: 8px 4px 8px 0;
+        }
+        .wu-chat-row {
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            max-width: 85%;
+            background: #ffffff;
+            border: 1px solid #dee2e6;
+        }
+        .wu-chat-meta {
+            font-size: 0.78rem;
+            color: #6c757d;
+            margin-bottom: 6px;
+        }
+        .wu-chat-text {
+            white-space: normal;
+            word-break: break-word;
+        }
+        .wu-chat-count {
+            font-size: 0.85rem;
+            color: #6c757d;
+            margin-bottom: 12px;
+        }
+    </style>
+{% endblock %}
+
+{% block extrajs %}
+    {{ block.super }}
+    {% if wu_chat_mode %}
+        {% include "admin/webhook_tg/includes/chat_scroll_script.html" %}
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    {% if wu_chat_mode %}
+        <div class="wu-bot-chat">
+            <a class="wu-bot-chat-back" href="{% url 'admin:webhook_tg_message_changelist' %}">← Все сообщения</a>
+            <h2>Чат {{ wu_chat_title }}</h2>
+            <div class="wu-chat-count">{{ wu_chat_count }} сообщений</div>
+            <div id="wu-chat-messages">{{ wu_chat_html }}</div>
+        </div>
+    {% endif %}
+    {{ block.super }}
+{% endblock %}
+
+{% block result_list %}
+    {% if not wu_chat_mode %}
+        {{ block.super }}
+    {% endif %}
+{% endblock %}
