@@ -350,18 +350,19 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
     """Тесты обработки edited_business_message: обновление Message и уведомление пользователю."""
 
     def test_edited_business_message_updates_text_in_db_and_sends_notification(self):
-        """При редактировании: текст в Message обновляется и пользователю уходит уведомление (sendMessage)."""
+        """При редактировании собеседником: текст в Message обновляется и владельцу уходит уведомление."""
         message_id = 400010
         old_text = "old text"
         new_text = "new edited text"
         username_from = "test_editor_user"
         first_name = "TestEditor"
         chat_id = 500010
+        owner_id = 800001
         user_chat_id_notification = 800001
         self.mock_post.return_value.json.return_value = {
             "result": {
                 "user_chat_id": user_chat_id_notification,
-                "user": {"id": 500010},
+                "user": {"id": owner_id},
             }
         }
 
@@ -379,7 +380,7 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
             first_name=first_name,
             new_text=new_text,
             chat_id=chat_id,
-            user_id=500010,
+            user_id=600010,
         )
         response = self.client.post(
             "/webhook_tg/",
@@ -388,12 +389,10 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
         )
         self.assertEqual(response.status_code, 200)
 
-        # В таблице Message текст обновлён на новый
         msg = Message.objects.get(chat_id=chat_id, message_id=message_id)
         self.assertEqual(msg.text, new_text)
         self.assertEqual(msg.username_from, username_from)
 
-        # Вызван sendMessage с уведомлением об редактировании
         send_message_calls = [
             c for c in self.mock_post.call_args_list
             if get_post_call_args(c)[0] and "sendMessage" in str(get_post_call_args(c)[0])
@@ -409,6 +408,56 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
         self.assertIn("Old:", notification_text)
         self.assertIn("New:", notification_text)
         self.assertIn(new_text, notification_text)
+
+    def test_edited_business_message_notifies_partner_when_owner_edits(self):
+        """Когда владелец business-аккаунта редактирует сообщение в чате с собеседником — уведомление уходит собеседнику."""
+        message_id = 400011
+        old_text = "аоаоаоа"
+        new_text = "бобобобо"
+        partner_chat_id = 870546616
+        owner_id = 1394340082
+        owner_user_chat_id = 1394340082
+        self.mock_post.return_value.json.return_value = {
+            "result": {
+                "user_chat_id": owner_user_chat_id,
+                "user": {"id": owner_id, "username": "maksonchik200"},
+            }
+        }
+
+        Message.objects.create(
+            message_id=message_id,
+            chat_id=partner_chat_id,
+            username_from="maksonchik200",
+            text=old_text,
+            business_connection_id="test_conn_owner_edit",
+        )
+
+        payload = make_edited_business_message_payload(
+            message_id=message_id,
+            username_from="maksonchik200",
+            first_name="Максим",
+            new_text=new_text,
+            chat_id=partner_chat_id,
+            user_id=owner_id,
+            business_connection_id="test_conn_owner_edit",
+        )
+        payload["update_id"] = 963538804
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        send_message_calls = [
+            c for c in self.mock_post.call_args_list
+            if get_post_call_args(c)[0] and "sendMessage" in str(get_post_call_args(c)[0])
+        ]
+        self.assertEqual(len(send_message_calls), 1)
+        _, body = get_post_call_args(send_message_calls[0])
+        self.assertEqual(body.get("chat_id"), partner_chat_id)
+        self.assertIn(old_text, body.get("text", ""))
+        self.assertIn(new_text, body.get("text", ""))
 
 
 class WebhookDeletedBusinessMessageTests(NoTelegramApiTestCase):

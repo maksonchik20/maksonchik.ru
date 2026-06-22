@@ -13,7 +13,7 @@ from .telegram import (
 )
 from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID, ALLOWED_SEND_CHAT_IDS
 from .inner_models.BusinessConnection import BusinessConnection
-from .idempotency import acquire_webhook_update
+from .idempotency import acquire_webhook_update, acquire_edit_notification
 
 
 @csrf_exempt
@@ -46,8 +46,7 @@ def webhook_tg(request: HttpRequest):
             pass
         elif is_edited_message(data):
             business_connection = get_business_connection(msg)
-            if (business_connection.user_chat_id != chat_id):
-                tg_send_message(chat_id=business_connection.user_chat_id, text=build_message_update(msg, business_connection))
+            _send_edit_notification(msg, business_connection)
         elif is_deleted_message(data):
             business_connection = get_business_connection(msg)
             if (business_connection.user_chat_id != chat_id):
@@ -293,8 +292,6 @@ def build_message_update(msg: dict, business_connection: BusinessConnection):
     fr = msg.get("from") or {}
     first_name = fr.get("first_name") or "Unknown"
     username = fr.get("username")
-    if business_connection.username == username:
-        return None
 
     message_id = msg.get("message_id")
     old = get_message_by_tg(msg)
@@ -311,6 +308,36 @@ def build_message_update(msg: dict, business_connection: BusinessConnection):
         f"<b>New:</b>\n<blockquote>{html.escape(new_text)}</blockquote>\n\n"
         f"<b>@{html.escape('who_update_bot')}</b>"
     )
+
+
+def _edit_notification_recipient(msg: dict, business_connection: BusinessConnection):
+    msg_chat_id = _message_chat_id(msg)
+    if msg_chat_id is None or business_connection.user_chat_id is None:
+        return None
+    if business_connection.user_chat_id == msg_chat_id:
+        return None
+
+    fr = msg.get("from") or {}
+    editor_username = fr.get("username")
+
+    # Владелец business-аккаунта редактировал своё сообщение — себе не отправляем,
+    # только собеседнику в этом чате.
+    if business_connection.username == editor_username:
+        return msg_chat_id
+
+    # Редактировал кто-то другой — уведомляем владельца business-аккаунта.
+    return business_connection.user_chat_id
+
+
+def _send_edit_notification(msg: dict, business_connection: BusinessConnection) -> None:
+    recipient = _edit_notification_recipient(msg, business_connection)
+    if recipient is None:
+        return
+    if not acquire_edit_notification(msg):
+        return
+
+    notification = build_message_update(msg, business_connection)
+    tg_send_message(chat_id=recipient, text=notification)
 
 def init_user_bot(user_id: int, chat_id: int, username: str, first_name: str):
     user, created = UserTg.objects.get_or_create(

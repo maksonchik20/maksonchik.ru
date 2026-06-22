@@ -62,6 +62,23 @@ class WebhookUpdate(models.Model):
         return str(self.update_id)
 
 
+class EditNotificationSent(models.Model):
+    editor_id = models.BigIntegerField(verbose_name="ID редактора")
+    edit_date = models.BigIntegerField(verbose_name="edit_date из Telegram")
+    text_hash = models.CharField(verbose_name="Хеш нового текста", max_length=16)
+    sent_at = models.DateTimeField(verbose_name="Отправлено", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Отправленное уведомление об редактировании"
+        verbose_name_plural = "Отправленные уведомления об редактировании"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["editor_id", "edit_date", "text_hash"],
+                name="webhook_tg_edit_notification_uniq",
+            ),
+        ]
+
+
 class Message(models.Model):
     business_connection_id = models.CharField(verbose_name="Business connection id", default="", blank=True, null=True, max_length=255)
     message_id = models.IntegerField(verbose_name="Message Id")

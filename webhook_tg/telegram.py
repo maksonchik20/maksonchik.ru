@@ -1,16 +1,20 @@
+import logging
+
 import requests
 
 from env import TOKEN_BOT
 import html
 from .inner_models.BusinessConnection import BusinessConnection
 
+logger = logging.getLogger(__name__)
+
 api_tg_url = f"https://api.telegram.org/bot{TOKEN_BOT}"
 
-def tg_send_message(chat_id: str, text: str, timeout: int = 1) -> None:
+def tg_send_message(chat_id: str, text: str, timeout: int = 5) -> bool:
     if not chat_id:
-        return
+        return False
     if text is None:
-        return
+        return False
 
     url = f"{api_tg_url}/sendMessage"
     body = {}
@@ -18,11 +22,37 @@ def tg_send_message(chat_id: str, text: str, timeout: int = 1) -> None:
     body['text'] = text
     body['parse_mode'] = "HTML"
     body['disable_web_page_preview'] = True
-    requests.post(
-        url,
-        json=body,
-        timeout=timeout,
-    )
+    try:
+        response = requests.post(
+            url,
+            json=body,
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        logger.error("sendMessage failed chat_id=%s: %s", chat_id, exc)
+        return False
+
+    try:
+        payload = response.json()
+    except ValueError:
+        logger.error(
+            "sendMessage invalid JSON chat_id=%s status=%s body=%s",
+            chat_id,
+            response.status_code,
+            response.text[:500],
+        )
+        return False
+
+    if not payload.get("ok"):
+        logger.error(
+            "sendMessage API error chat_id=%s status=%s response=%s",
+            chat_id,
+            response.status_code,
+            payload,
+        )
+        return False
+
+    return True
 
 def get_business_connection(msg) -> BusinessConnection:
     url = f"{api_tg_url}/getBusinessConnection"

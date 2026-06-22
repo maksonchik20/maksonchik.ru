@@ -1,8 +1,9 @@
+import hashlib
 import logging
 
 from django.db import IntegrityError, transaction
 
-from .models import WebhookUpdate
+from .models import EditNotificationSent, WebhookUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,30 @@ def acquire_webhook_update(update_id) -> bool:
     try:
         with transaction.atomic():
             WebhookUpdate.objects.create(update_id=update_id)
+        return True
+    except IntegrityError:
+        return False
+
+
+def acquire_edit_notification(msg) -> bool:
+    """
+    Регистрирует уведомление об редактировании. Один и тот же edit приходит
+    по двум business_connection — отправляем только один раз.
+    """
+    fr = msg.get("from") or {}
+    editor_id = fr.get("id")
+    edit_date = msg.get("edit_date")
+    if editor_id is None or edit_date is None:
+        return True
+
+    text_hash = hashlib.sha256((msg.get("text") or "").encode()).hexdigest()[:16]
+    try:
+        with transaction.atomic():
+            EditNotificationSent.objects.create(
+                editor_id=editor_id,
+                edit_date=edit_date,
+                text_hash=text_hash,
+            )
         return True
     except IntegrityError:
         return False
