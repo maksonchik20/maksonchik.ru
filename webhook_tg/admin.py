@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.db.models import Q
-from .models import Message, UserTg, AdminChatFilter
+from .models import Message, UserTg, AdminChatFilter, TelegramOutbox
 
 HIDDEN_USERNAMES = {"@tamataeva86", }
 
@@ -42,6 +42,31 @@ class AdminChatFilterAdmin(admin.ModelAdmin):
 
 
 admin.site.register(UserTg)
+
+
+@admin.register(TelegramOutbox)
+class TelegramOutboxAdmin(admin.ModelAdmin):
+    list_display = ("id", "method", "chat_id", "attempts", "next_attempt_at", "created_at", "dedup_key")
+    list_filter = ("method",)
+    search_fields = ("chat_id", "dedup_key", "last_error")
+    ordering = ("next_attempt_at",)
+    readonly_fields = ("created_at", "payload", "last_error")
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
+
 
 admin.site.site_header = "WhoUpdateBot Admin"
 admin.site.site_title = "WhoUpdateBot"
