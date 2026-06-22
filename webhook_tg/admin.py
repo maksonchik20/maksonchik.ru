@@ -56,7 +56,7 @@ class MessageAdmin(admin.ModelAdmin):
         extra_context["wu_chat_mode"] = bool(chat_id)
 
         if chat_id:
-            messages = list(self.get_queryset(request).order_by("created_at"))
+            messages = list(self.get_queryset(request).order_by("-created_at"))
             extra_context["wu_chat_count"] = len(messages)
 
             title_parts = [f"chat_id {chat_id}"]
