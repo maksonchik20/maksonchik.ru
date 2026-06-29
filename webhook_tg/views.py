@@ -394,3 +394,23 @@ def is_new_message(data):
 
 def is_deleted_message(data):
     return data.get("deleted_business_messages") is not None or data.get("deleted_messages") is not None
+
+
+@csrf_exempt
+def owner_notify(request: HttpRequest):
+    if request.method != "POST":
+        return HttpResponse(status=405)
+    try:
+        from env import WHO_UPDATE_EVENT_TOKEN
+    except ImportError:
+        return HttpResponse(status=403)
+    if request.headers.get("X-Who-Update-Token", "") != WHO_UPDATE_EVENT_TOKEN:
+        return HttpResponse(status=403)
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return HttpResponse(status=400)
+    text = data.get("text", "")
+    if text:
+        tg_send_message(OWNER_CHAT_ID, text)
+    return HttpResponse("ok")
