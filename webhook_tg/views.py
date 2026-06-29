@@ -15,6 +15,7 @@ from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID, ALLOWED_SEND_CHAT
 from .inner_models.BusinessConnection import BusinessConnection
 from .idempotency import acquire_webhook_update
 from .outbox import enqueue_outbox, edit_notification_dedup_key
+from .event_reporter import report_who_update_event
 
 
 @csrf_exempt
@@ -175,6 +176,13 @@ def create_message(msg):
             "caption": caption,
             "payload": str(msg),
         },
+    )
+    report_who_update_event(
+        chat_id=chat_id,
+        message_id=message_id,
+        business_connection_id=business_connection_id,
+        username_from=username_from,
+        first_name=first_name,
     )
 
 def _build_deleted_caption(deleted: dict, message_id: int, text: str) -> str:
