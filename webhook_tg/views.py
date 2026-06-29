@@ -10,12 +10,14 @@ from .telegram import (
     send_audio,
     send_video,
     send_document,
+    send_photo_bytes,
 )
 from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID, ALLOWED_SEND_CHAT_IDS
 from .inner_models.BusinessConnection import BusinessConnection
 from .idempotency import acquire_webhook_update
 from .outbox import enqueue_outbox, edit_notification_dedup_key
 from .event_reporter import report_who_update_event
+from .events_chart import parse_events_period, build_outgoing_events_chart, PERIOD_HELP
 
 
 @csrf_exempt
@@ -44,6 +46,8 @@ def webhook_tg(request: HttpRequest):
         if text == "/start" and is_message_to_bot(data):
             init_user_bot(user_id=from_user_id, chat_id=chat_id, username=username, first_name=first_name)
             send_meeting_message(chat_id)
+        elif is_message_to_bot(data) and _handle_events_command(chat_id, text):
+            pass
         elif is_message_to_bot(data) and _handle_send_media_command(chat_id, text):
             pass
         elif is_edited_message(data):
@@ -68,6 +72,26 @@ def webhook_tg(request: HttpRequest):
 
 def send_meeting_message(chat_id):
     send_photo(chat_id=chat_id, photo_id=START_PHOTO_ID, caption=START_TEXT)
+
+
+def _handle_events_command(chat_id, text: str) -> bool:
+    if not text or not text.strip().lower().startswith("/events"):
+        return False
+    chat_id_int = int(chat_id) if chat_id is not None else None
+    if chat_id_int not in ALLOWED_SEND_CHAT_IDS:
+        return True
+    parts = text.strip().split(None, 1)
+    period_raw = parts[1] if len(parts) > 1 else ""
+    period = parse_events_period(period_raw)
+    if period is None:
+        tg_send_message(chat_id, PERIOD_HELP)
+        return True
+    try:
+        chart_bytes, caption = build_outgoing_events_chart(period)
+        send_photo_bytes(chat_id, chart_bytes, caption=caption)
+    except Exception:
+        tg_send_message(chat_id, "Не удалось построить график. Попробуйте позже.")
+    return True
 
 
 def _handle_send_media_command(chat_id, text: str) -> bool:

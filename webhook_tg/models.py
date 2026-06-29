@@ -116,6 +116,19 @@ class TelegramOutbox(models.Model):
         return f"{self.method} → {self.chat_id} (attempts={self.attempts})"
 
 
+class BotOutgoingMessage(models.Model):
+    chat_id = models.BigIntegerField(verbose_name="Chat id получателя")
+    method = models.CharField(verbose_name="Метод Telegram API", max_length=32)
+    sent_at = models.DateTimeField(verbose_name="Отправлено", auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Исходящее сообщение бота"
+        verbose_name_plural = "Исходящие сообщения бота"
+
+    def __str__(self):
+        return f"{self.method} → {self.chat_id} @ {self.sent_at}"
+
+
 class Message(models.Model):
     business_connection_id = models.CharField(verbose_name="Business connection id", default="", blank=True, null=True, max_length=255)
     message_id = models.IntegerField(verbose_name="Message Id")
