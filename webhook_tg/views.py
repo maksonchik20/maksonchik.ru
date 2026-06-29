@@ -1,6 +1,7 @@
 from django.http import HttpResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 import json
+import threading
 from .models import UserTg, Message, FileType, TelegramOutbox
 import html
 from .telegram import (
@@ -86,11 +87,16 @@ def _handle_events_command(chat_id, text: str) -> bool:
     if period is None:
         tg_send_message(chat_id, PERIOD_HELP)
         return True
-    try:
-        chart_bytes, caption = build_outgoing_events_chart(period)
-        send_photo_bytes(chat_id, chart_bytes, caption=caption)
-    except Exception:
-        tg_send_message(chat_id, "Не удалось построить график. Попробуйте позже.")
+
+    def _build_and_send():
+        try:
+            chart_bytes, caption = build_outgoing_events_chart(period)
+            if not send_photo_bytes(chat_id, chart_bytes, caption=caption):
+                tg_send_message(chat_id, "Не удалось отправить график. Попробуйте позже.")
+        except Exception:
+            tg_send_message(chat_id, "Не удалось построить график. Попробуйте позже.")
+
+    threading.Thread(target=_build_and_send, daemon=True).start()
     return True
 
 
