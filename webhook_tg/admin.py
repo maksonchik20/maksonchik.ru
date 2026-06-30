@@ -7,7 +7,7 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
 from .chat_display import format_message_html
-from .models import Message, UserTg, AdminChatFilter, TelegramOutbox
+from .models import Message, UserTg, AdminChatFilter, TelegramOutbox, BotOutgoingMessage
 
 HIDDEN_USERNAMES = {"@tamataeva86", }
 
@@ -133,6 +133,42 @@ class TelegramOutboxAdmin(admin.ModelAdmin):
         return request.user.is_superuser
 
     def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+
+@admin.register(BotOutgoingMessage)
+class BotOutgoingMessageAdmin(admin.ModelAdmin):
+    list_display = ("sent_at", "chat_id", "recipient", "method")
+    list_filter = ("method", ("sent_at", admin.DateFieldListFilter))
+    search_fields = ("chat_id",)
+    ordering = ("-sent_at",)
+    date_hierarchy = "sent_at"
+    list_per_page = 100
+    readonly_fields = ("chat_id", "method", "sent_at")
+
+    @admin.display(description="Получатель")
+    def recipient(self, obj):
+        user = UserTg.objects.filter(chat_id=obj.chat_id).first()
+        if user:
+            if user.username:
+                return f"@{user.username}"
+            if user.first_name:
+                return user.first_name
+        return "—"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
         return request.user.is_superuser
 
     def has_delete_permission(self, request, obj=None):
