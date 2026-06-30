@@ -1,7 +1,9 @@
 from django.http import HttpResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 import json
-import threading
+import subprocess
+import sys
+from pathlib import Path
 from .models import UserTg, Message, FileType, TelegramOutbox
 import html
 from .telegram import (
@@ -11,14 +13,13 @@ from .telegram import (
     send_audio,
     send_video,
     send_document,
-    send_photo_bytes,
 )
 from .config import START_PHOTO_ID, START_TEXT, OWNER_CHAT_ID, ALLOWED_SEND_CHAT_IDS
 from .inner_models.BusinessConnection import BusinessConnection
 from .idempotency import acquire_webhook_update
 from .outbox import enqueue_outbox, edit_notification_dedup_key
 from .event_reporter import report_who_update_event
-from .events_chart import parse_events_period, build_outgoing_events_chart, PERIOD_HELP
+from .events_chart import parse_events_period, PERIOD_HELP
 
 
 @csrf_exempt
@@ -88,16 +89,25 @@ def _handle_events_command(chat_id, text: str) -> bool:
         tg_send_message(chat_id, PERIOD_HELP)
         return True
 
-    def _build_and_send():
-        try:
-            chart_bytes, caption = build_outgoing_events_chart(period)
-            if not send_photo_bytes(chat_id, chart_bytes, caption=caption):
-                tg_send_message(chat_id, "Не удалось отправить график. Попробуйте позже.")
-        except Exception:
-            tg_send_message(chat_id, "Не удалось построить график. Попробуйте позже.")
-
-    threading.Thread(target=_build_and_send, daemon=True).start()
+    _spawn_events_chart(chat_id, period_raw or "1h")
     return True
+
+
+def _spawn_events_chart(chat_id, period_raw: str) -> None:
+    project_dir = Path(__file__).resolve().parent.parent
+    subprocess.Popen(
+        [
+            sys.executable,
+            str(project_dir / "manage.py"),
+            "send_events_chart",
+            str(chat_id),
+            period_raw,
+        ],
+        cwd=str(project_dir),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 def _handle_send_media_command(chat_id, text: str) -> bool:

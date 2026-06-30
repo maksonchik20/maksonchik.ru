@@ -118,24 +118,32 @@ def send_document(chat_id, document_file_id: str, caption: str = "", timeout: in
     return ok
 
 
-def send_photo_bytes(chat_id, image_bytes: bytes, caption: str = "", timeout: int = 30) -> bool:
+def send_photo_bytes(chat_id, image_bytes: bytes, caption: str = "", timeout: int = 60) -> bool:
     if not chat_id or not image_bytes:
         return False
     url = f"{api_tg_url}/sendPhoto"
     data = {"chat_id": chat_id}
     if caption:
         data["caption"] = caption
-        data["parse_mode"] = "HTML"
-        data["disable_web_page_preview"] = "true"
     files = {"photo": ("chart.png", image_bytes, "image/png")}
-    try:
-        response = requests.post(url, data=data, files=files, timeout=timeout)
-        result = response.json()
-    except (requests.RequestException, ValueError) as exc:
-        logger.error("sendPhoto bytes failed chat_id=%s: %s", chat_id, exc)
-        return False
-    if not result.get("ok"):
-        logger.error("sendPhoto bytes API error chat_id=%s response=%s", chat_id, result)
-        return False
-    log_bot_outgoing(chat_id=chat_id, method="sendPhoto")
-    return True
+
+    last_exc = None
+    for attempt in range(3):
+        try:
+            response = requests.post(url, data=data, files=files, timeout=timeout)
+            result = response.json()
+            if result.get("ok"):
+                log_bot_outgoing(chat_id=chat_id, method="sendPhoto")
+                return True
+            logger.error("sendPhoto bytes API error chat_id=%s response=%s", chat_id, result)
+            return False
+        except (requests.RequestException, ValueError) as exc:
+            last_exc = exc
+            logger.warning(
+                "sendPhoto bytes attempt %s failed chat_id=%s: %s",
+                attempt + 1,
+                chat_id,
+                exc,
+            )
+    logger.error("sendPhoto bytes failed chat_id=%s: %s", chat_id, last_exc)
+    return False

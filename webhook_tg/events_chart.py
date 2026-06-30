@@ -60,6 +60,32 @@ def _period_label(period: timedelta) -> str:
     return f"{total_minutes}m"
 
 
+def format_outgoing_events_summary(period: timedelta) -> str:
+    now = timezone.localtime()
+    start = now - period
+    bucket = _bucket_size(period)
+    qs = BotOutgoingMessage.objects.filter(sent_at__gte=start, sent_at__lte=now)
+    total = qs.count()
+
+    lines = [
+        f"📊 Исходящие сообщения бота за {_period_label(period)}",
+        f"Всего: {total}",
+    ]
+    if total == 0:
+        return "\n".join(lines)
+
+    bucket_start = start
+    while bucket_start < now:
+        bucket_end = min(bucket_start + bucket, now)
+        count = qs.filter(sent_at__gte=bucket_start, sent_at__lt=bucket_end).count()
+        if count:
+            label = timezone.localtime(bucket_start).strftime("%d.%m %H:%M")
+            lines.append(f"• {label}: {count}")
+        bucket_start = bucket_end
+
+    return "\n".join(lines)
+
+
 def build_outgoing_events_chart(period: timedelta) -> tuple[bytes, str]:
     now = timezone.localtime()
     start = now - period
@@ -78,7 +104,7 @@ def build_outgoing_events_chart(period: timedelta) -> tuple[bytes, str]:
         counts.append(count)
         bucket_start = bucket_end
 
-    fig, ax = plt.subplots(figsize=(10, 4.5), dpi=120)
+    fig, ax = plt.subplots(figsize=(10, 4.5), dpi=96)
     fig.patch.set_facecolor("#1e1e2e")
     ax.set_facecolor("#1e1e2e")
 
