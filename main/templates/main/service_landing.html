@@ -1,0 +1,543 @@
+{% extends "main/base.html" %}
+
+{% block page_title %}{{ page.title }}{% endblock %}
+{% block meta_description %}{{ page.description }}{% endblock %}
+{% block canonical_url %}{{ page.url }}{% endblock %}
+{% block og_title %}{{ page.title }}{% endblock %}
+{% block og_description %}{{ page.description }}{% endblock %}
+{% block og_url %}{{ page.url }}{% endblock %}
+
+{% block nav_links %}
+<a class="hide-sm" href="#features" data-index="01">Возможности</a>
+<a class="hide-sm" href="#pricing" data-index="02">Стоимость</a>
+<a class="hide-sm" href="#faq" data-index="03">Вопросы</a>
+<a class="hide-sm" href="/blog/">Блог</a>
+<a class="hide-sm" href="/">Главная</a>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .landing-page {
+    --landing-accent: var(--{{ page.accent }});
+    --landing-accent-dim: color-mix(in srgb, var(--landing-accent) 12%, transparent);
+    --landing-accent-border: color-mix(in srgb, var(--landing-accent) 30%, transparent);
+  }
+  .hero {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    padding: 120px 0 80px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-bg-word {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -55%);
+    font-family: var(--font-display);
+    font-size: clamp(5rem, 20vw, 16rem);
+    font-weight: 800;
+    letter-spacing: -0.06em;
+    line-height: 0.85;
+    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.04);
+    -webkit-text-stroke: 1.5px color-mix(in srgb, var(--landing-accent) 35%, transparent);
+    pointer-events: none;
+    user-select: none;
+    z-index: 0;
+  }
+  .hero-inner { position: relative; z-index: 1; width: 100%; }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: 56px;
+    align-items: center;
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px 8px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--landing-accent-border);
+    background: var(--landing-accent-dim);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--landing-accent);
+    margin-bottom: 24px;
+  }
+  .eyebrow-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--landing-accent);
+    box-shadow: 0 0 16px var(--landing-accent);
+  }
+  .hero h1 {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 800;
+    line-height: 1.08;
+    letter-spacing: -0.04em;
+    margin: 0 0 20px;
+  }
+  .hero-lead {
+    font-size: clamp(1.02rem, 2vw, 1.12rem);
+    color: var(--muted);
+    max-width: 54ch;
+    line-height: 1.75;
+    margin: 0 0 24px;
+  }
+  .hero-bullets {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 28px;
+    display: grid;
+    gap: 10px;
+  }
+  .hero-bullets li {
+    position: relative;
+    padding-left: 22px;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+  .hero-bullets li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.55em;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--landing-accent);
+    transform: rotate(45deg);
+  }
+  .hero-cta { display: flex; flex-wrap: wrap; gap: 14px; }
+  .hero-card { padding: 32px; }
+  .hero-card h2 {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--landing-accent);
+    margin: 0 0 20px;
+  }
+  .stat-list { list-style: none; padding: 0; margin: 0; }
+  .stat-list li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    font-size: 0.92rem;
+  }
+  .stat-list li:last-child { border-bottom: none; }
+  .stat-list span { color: var(--muted); }
+  .stat-list strong { color: var(--ink); text-align: right; }
+
+  .marquee-wrap {
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 20px 0;
+    overflow: hidden;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: rgba(255,255,255,0.015);
+  }
+  .marquee { display: flex; width: max-content; animation: marquee 22s linear infinite; }
+  .marquee__track { display: flex; align-items: center; gap: 56px; padding: 0 28px; }
+  .marquee__item {
+    font-family: var(--font-display);
+    font-size: clamp(1.2rem, 3vw, 2rem);
+    font-weight: 800;
+    white-space: nowrap;
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(255,255,255,0.12);
+  }
+  @keyframes marquee { to { transform: translateX(-50%); } }
+
+  .section-block { padding: 100px 0 60px; position: relative; }
+  .section-title {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 4.5vw, 3.2rem);
+    font-weight: 800;
+    margin: 0;
+    letter-spacing: -0.04em;
+    line-height: 1;
+  }
+  .section-sub {
+    font-size: 1.08rem;
+    color: var(--muted);
+    max-width: 58ch;
+    line-height: 1.75;
+    margin: 20px 0 0;
+  }
+  .chip-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin-top: 40px;
+  }
+  .chip {
+    padding: 18px 20px;
+    border-radius: calc(var(--radius) - 6px);
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.02);
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    transition: border-color 0.25s ease, color 0.25s ease;
+  }
+  .chip:hover {
+    border-color: var(--landing-accent-border);
+    color: var(--ink);
+  }
+  .chip-grid--audience { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+
+  .also-available {
+    margin-top: 40px;
+    padding: 28px 32px;
+    border-radius: var(--radius);
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.02);
+  }
+  .also-available h3 {
+    margin: 0 0 16px;
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .also-available ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 20px;
+  }
+  .also-available a {
+    color: var(--muted);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+    transition: color 0.2s ease;
+  }
+  .also-available a:hover { color: var(--landing-accent); }
+  .also-available a::before {
+    content: "→ ";
+    color: var(--landing-accent);
+  }
+
+  .pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    margin-top: 40px;
+  }
+  .price-card {
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 100%;
+  }
+  .price-card h3 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+  .price-card__sum {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--landing-accent);
+  }
+  .price-card p { margin: 0; color: var(--muted); font-size: 0.92rem; line-height: 1.6; }
+
+  .timeline-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-top: 40px;
+  }
+  .timeline-card { padding: 24px; text-align: center; }
+  .timeline-card strong {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: var(--landing-accent);
+    margin-bottom: 8px;
+  }
+  .timeline-card span { color: var(--muted); font-size: 0.92rem; }
+
+  .process-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-top: 40px;
+    counter-reset: step;
+  }
+  .process-card { padding: 24px; counter-increment: step; }
+  .process-card::before {
+    content: counter(step, decimal-leading-zero);
+    display: block;
+    font-family: var(--font-display);
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: var(--landing-accent);
+    opacity: 0.45;
+    margin-bottom: 12px;
+  }
+  .process-card h3 {
+    margin: 0 0 8px;
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 700;
+  }
+  .process-card p { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.6; }
+
+  .contact-arena {
+    position: relative;
+    border-radius: calc(var(--radius) + 12px);
+    padding: 3px;
+    background: conic-gradient(from var(--angle), var(--landing-accent), var(--violet), var(--cyan), var(--landing-accent));
+    animation: border-spin 4s linear infinite;
+  }
+  .contact-arena__inner {
+    position: relative;
+    background: rgba(2, 2, 6, 0.92);
+    border-radius: calc(var(--radius) + 9px);
+    padding: clamp(40px, 6vw, 64px);
+    text-align: center;
+  }
+  .contact-arena h2 {
+    font-family: var(--font-display);
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    font-weight: 800;
+    margin: 0 0 16px;
+    letter-spacing: -0.04em;
+  }
+  .contact-arena p {
+    margin: 0 auto 28px;
+    color: var(--muted);
+    max-width: 52ch;
+    line-height: 1.75;
+  }
+
+  @media (max-width: 900px) {
+    .hero-grid { grid-template-columns: 1fr; }
+    .chip-grid, .pricing-grid { grid-template-columns: 1fr; }
+    .timeline-grid { grid-template-columns: 1fr; }
+    .process-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 720px) {
+    .hero { min-height: auto; padding: 88px 0 40px; }
+    .section-block { padding: 72px 0 40px; }
+    .process-grid { grid-template-columns: 1fr; }
+  }
+</style>
+{% include "main/includes/ld_json_service.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="landing-page">
+<section class="hero wrap">
+  <div class="hero-bg-word" aria-hidden="true">{{ page.bg_word }}</div>
+  <div class="hero-inner">
+    <div class="hero-grid">
+      <div>
+        <div class="eyebrow"><span class="eyebrow-dot"></span>{{ page.eyebrow }}</div>
+        <h1>{{ page.h1 }}</h1>
+        <p class="hero-lead">{{ page.hero_lead }}</p>
+        <ul class="hero-bullets">
+          {% for item in page.hero_bullets %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+        <div class="hero-cta">
+          <a class="btn btn-primary btn-arrow" href="{{ site.telegram }}" target="_blank" rel="noopener">Написать в Telegram</a>
+          <a class="btn btn-ghost btn-arrow" href="#features">Что можно сделать</a>
+        </div>
+      </div>
+      <aside class="hero-card holo-card tilt-card" aria-label="Сроки">
+        <h2>Сроки</h2>
+        <ul class="stat-list">
+          {% for item in timelines %}
+          <li><span>{{ item.title }}</span><strong>{{ item.time }}</strong></li>
+          {% endfor %}
+        </ul>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<div class="marquee-wrap" aria-hidden="true">
+  <div class="marquee">
+    <div class="marquee__track">
+      {% for item in page.marquee %}<span class="marquee__item">{{ item }}</span>{% endfor %}
+    </div>
+    <div class="marquee__track">
+      {% for item in page.marquee %}<span class="marquee__item">{{ item }}</span>{% endfor %}
+    </div>
+  </div>
+</div>
+
+<section id="features" class="section-block wrap">
+  <span class="section-num" aria-hidden="true">01</span>
+  <div class="section-head" data-reveal>
+    <h2 class="section-title gradient-text">Что можно реализовать</h2>
+  </div>
+  <div class="chip-grid">
+    {% for item in page.features %}
+    <div class="chip holo-card" data-reveal data-reveal-delay="{{ forloop.counter }}">{{ item }}</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="audience" class="section-block wrap">
+  <span class="section-num" aria-hidden="true">02</span>
+  <div class="section-head" data-reveal>
+    <h2 class="section-title gradient-text">Кому подойдёт</h2>
+  </div>
+  <div class="chip-grid chip-grid--audience">
+    {% for item in page.audience %}
+    <div class="chip holo-card" data-reveal>{{ item }}</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section-block wrap">
+  <div class="also-available holo-card" data-reveal>
+    <h3>Также могу сделать:</h3>
+    <ul>
+      {% for link in also_available %}
+      <li><a href="{{ link.url }}">{{ link.label }}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+<section id="pricing" class="section-block wrap">
+  <span class="section-num" aria-hidden="true">03</span>
+  <div class="section-head" data-reveal>
+    <h2 class="section-title gradient-text">Стоимость</h2>
+  </div>
+  <p class="section-sub" data-reveal data-reveal-delay="1">Ориентиры по бюджету — точная смета после описания задачи в Telegram.</p>
+  <div class="pricing-grid">
+    {% for tier in pricing_tiers %}
+    <article class="price-card holo-card tilt-card" data-reveal data-reveal-delay="{{ forloop.counter }}">
+      <h3>{{ tier.title }}</h3>
+      <div class="price-card__sum">{{ tier.price }}</div>
+      <p>{{ tier.text }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="timelines" class="section-block wrap">
+  <span class="section-num" aria-hidden="true">04</span>
+  <div class="section-head" data-reveal>
+    <h2 class="section-title gradient-text">Сроки</h2>
+  </div>
+  <div class="timeline-grid">
+    {% for item in timelines %}
+    <article class="timeline-card holo-card" data-reveal data-reveal-delay="{{ forloop.counter }}">
+      <strong>{{ item.time }}</strong>
+      <span>{{ item.title }}</span>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="process" class="section-block wrap">
+  <span class="section-num" aria-hidden="true">05</span>
+  <div class="section-head" data-reveal>
+    <h2 class="section-title gradient-text">Как работаем</h2>
+  </div>
+  <div class="process-grid">
+    {% for step in process %}
+    <article class="process-card holo-card" data-reveal data-reveal-delay="{{ forloop.counter }}">
+      <h3>{{ step.title }}</h3>
+      <p>{{ step.text }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="faq" class="section-block wrap">
+  <span class="section-num" aria-hidden="true">06</span>
+  <div class="section-head" data-reveal>
+    <h2 class="section-title gradient-text">Частые вопросы</h2>
+  </div>
+  <div class="faq-list">
+    {% for item in page.faq %}
+    <details class="faq-item" data-reveal data-reveal-delay="{{ forloop.counter }}">
+      <summary>{{ item.q }}</summary>
+      <p>{{ item.a }}</p>
+    </details>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="contact" class="section-block wrap">
+  <div class="contact-arena" data-reveal>
+    <div class="contact-arena__inner">
+      <h2 class="gradient-text">Обсудим проект?</h2>
+      <p>{{ page.cta_text }}</p>
+      <a class="btn btn-primary btn-arrow" href="{{ site.telegram }}" target="_blank" rel="noopener">{{ site.telegram_handle }}</a>
+    </div>
+  </div>
+</section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var finePointer = window.matchMedia("(pointer: fine)").matches;
+  if (!reduced) {
+    document.querySelectorAll("[data-reveal]").forEach(function (el) {
+      var delay = el.getAttribute("data-reveal-delay");
+      if (delay) el.style.transitionDelay = (parseInt(delay, 10) * 0.1) + "s";
+    });
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.08, rootMargin: "0px 0px -60px 0px" });
+    document.querySelectorAll("[data-reveal]").forEach(function (el) { observer.observe(el); });
+  } else {
+    document.querySelectorAll("[data-reveal]").forEach(function (el) { el.classList.add("is-visible"); });
+  }
+  document.querySelectorAll(".holo-card").forEach(function (card) {
+    card.addEventListener("mousemove", function (e) {
+      var rect = card.getBoundingClientRect();
+      card.style.setProperty("--card-x", ((e.clientX - rect.left) / rect.width) * 100 + "%");
+      card.style.setProperty("--card-y", ((e.clientY - rect.top) / rect.height) * 100 + "%");
+    });
+  });
+  if (finePointer && !reduced) {
+    document.querySelectorAll(".tilt-card").forEach(function (card) {
+      card.addEventListener("mousemove", function (e) {
+        var rect = card.getBoundingClientRect();
+        var x = (e.clientX - rect.left) / rect.width - 0.5;
+        var y = (e.clientY - rect.top) / rect.height - 0.5;
+        card.style.transform = "perspective(1000px) rotateY(" + (x * 10) + "deg) rotateX(" + (-y * 10) + "deg)";
+      });
+      card.addEventListener("mouseleave", function () { card.style.transform = ""; });
+    });
+  }
+})();
+</script>
+{% endblock %}

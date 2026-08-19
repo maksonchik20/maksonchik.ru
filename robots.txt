@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /webhook_tg/
+
+Sitemap: https://maksonchik.ru/sitemap.xml

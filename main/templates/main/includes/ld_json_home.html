@@ -1,0 +1,29 @@
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Person",
+      "@id": "{{ site.url }}#person",
+      "name": "{{ site.name }}",
+      "url": "{{ site.url }}",
+      "jobTitle": "Разработчик сайтов",
+      "telephone": "{{ schema.telephone }}",
+      "email": "{{ site.email }}",
+      "worksFor": {
+        "@type": "Organization",
+        "name": "Яндекс Маркет"
+      },
+      "sameAs": ["{{ site.telegram }}"]
+    },
+    {
+      "@type": "WebSite",
+      "@id": "{{ site.url }}#website",
+      "name": "{{ site.name }}",
+      "alternateName": "maksonchik.ru",
+      "url": "{{ site.url }}",
+      "publisher": {"@id": "{{ site.url }}#person"}
+    }
+  ]
+}
+</script>

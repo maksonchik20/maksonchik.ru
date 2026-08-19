@@ -1,0 +1,552 @@
+{% extends "main/base.html" %}
+
+{% block page_title %}Как посмотреть удалённые сообщения в Telegram (ТГ) — бот WhoUpdate{% endblock %}
+{% block meta_description %}Бот для просмотра удалённых и изменённых сообщений в Телеграм. WhoUpdate присылает копию при удалении и правке — без пароля и SMS. Подключите за минуту.{% endblock %}
+{% block canonical_url %}{{ canonical_url|default:"https://maksonchik.ru/bot/" }}{% endblock %}
+{% block og_title %}Как посмотреть удалённые сообщения в Telegram (ТГ) — бот WhoUpdate{% endblock %}
+{% block og_description %}Бот для просмотра удалённых и изменённых сообщений в Телеграм. WhoUpdate присылает копию при удалении и правке — без пароля и SMS. Подключите за минуту.{% endblock %}
+{% block og_url %}{{ canonical_url|default:"https://maksonchik.ru/bot/" }}{% endblock %}
+
+{% block nav_brand %}
+<a class="nav-brand" href="{{ landing_path|default:'/bot/' }}">WhoUpdate</a>
+{% endblock %}
+
+{% block nav_links %}
+<a class="hide-sm" href="#features" data-index="01">Возможности</a>
+<a class="hide-sm" href="#how" data-index="02">Подключение</a>
+<a class="hide-sm" href="#faq" data-index="03">FAQ</a>
+<a class="hide-sm" href="/">Главная</a>
+{% endblock %}
+
+{% block nav_cta %}
+<a class="btn btn-primary" href="https://t.me/who_update_bot" target="_blank" rel="noopener">Открыть бота</a>
+{% endblock %}
+
+{% block footer_inner %}
+<div>© WhoUpdate · maksonchik.ru</div>
+<div>
+  <a href="https://t.me/who_update_bot" target="_blank" rel="noopener">Telegram-бот</a>
+  ·
+  <a href="/">maksonchik.ru</a>
+  ·
+  <a href="/admin/">Админка</a>
+</div>
+{% endblock %}
+
+{% block favicons %}
+<link rel="icon" href="/who-update-favicon.svg" type="image/svg+xml">
+<link rel="shortcut icon" href="/who-update-favicon.svg" type="image/svg+xml">
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .bot-page {
+    --bot-accent: var(--cyan);
+    --bot-accent-dim: rgba(0, 245, 255, 0.08);
+    --bot-accent-border: rgba(0, 245, 255, 0.25);
+  }
+
+  .hero {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    padding: 120px 0 80px;
+    position: relative;
+  }
+  .hero-inner { position: relative; z-index: 1; width: 100%; }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    gap: 56px;
+    align-items: center;
+  }
+  .hero-copy {
+    min-width: 0;
+    position: relative;
+    z-index: 2;
+  }
+  .mock-panel {
+    min-width: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px 8px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--bot-accent-border);
+    background: var(--bot-accent-dim);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--bot-accent);
+    margin-bottom: 20px;
+  }
+  .eyebrow-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--bot-accent);
+    box-shadow: 0 0 16px var(--bot-accent);
+  }
+  .hero h1 {
+    font-family: var(--font-display);
+    font-size: clamp(1.6rem, 3.2vw, 2.4rem);
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    margin: 0 0 16px;
+    color: var(--ink);
+    max-width: 18ch;
+  }
+  .hero h1 .highlight {
+    display: block;
+    margin-top: 0.15em;
+    background: var(--gradient-wide);
+    background-size: 300% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: text-shimmer 3s linear infinite;
+  }
+  .hero-sub {
+    margin: 0 0 28px;
+    color: var(--muted);
+    font-size: 1.02rem;
+    max-width: 54ch;
+    line-height: 1.75;
+  }
+  .hero-cta { display: flex; flex-wrap: wrap; gap: 14px; }
+  .hero-note {
+    margin-top: 16px;
+    font-size: 0.88rem;
+    color: var(--muted);
+  }
+
+  .mock-panel {
+    padding: 24px;
+    display: grid;
+    gap: 14px;
+  }
+  .mock-bubble {
+    padding: 16px 18px;
+    border-radius: calc(var(--radius) - 6px);
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+  }
+  .mock-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--bot-accent);
+    margin-bottom: 8px;
+  }
+  .mock-title {
+    font-weight: 700;
+    margin-bottom: 8px;
+    font-size: 0.98rem;
+  }
+  .mock-quote {
+    margin: 0;
+    padding: 10px 12px;
+    border-left: 3px solid var(--bot-accent);
+    background: rgba(0, 245, 255, 0.06);
+    border-radius: 0 10px 10px 0;
+    font-size: 0.92rem;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+  .mock-meta {
+    margin-top: 8px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    opacity: 0.85;
+  }
+
+  .section-block {
+    padding: 100px 0 60px;
+    position: relative;
+  }
+  .section-title {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 4.5vw, 3.2rem);
+    font-weight: 800;
+    margin: 0;
+    letter-spacing: -0.04em;
+    line-height: 1;
+  }
+  .section-sub {
+    font-size: 1.05rem;
+    color: var(--muted);
+    max-width: 58ch;
+    line-height: 1.75;
+    margin: 20px 0 0;
+  }
+
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 40px;
+  }
+  .feature-card {
+    padding: 24px;
+    min-height: 100%;
+  }
+  .feature-card h3 {
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin: 0 0 10px;
+    letter-spacing: -0.02em;
+  }
+  .feature-card p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.94rem;
+    line-height: 1.65;
+  }
+
+  .steps-grid {
+    display: grid;
+    gap: 16px;
+    max-width: 46rem;
+    margin-top: 40px;
+    counter-reset: step;
+  }
+  .step-card {
+    padding: 22px 24px;
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .step-card::before {
+    content: counter(step, decimal-leading-zero);
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--bot-accent);
+    opacity: 0.7;
+    line-height: 1;
+  }
+  .step-card h3 {
+    margin: 0 0 6px;
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+  .step-card p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.94rem;
+    line-height: 1.65;
+  }
+
+  .honesty-card {
+    margin-top: 40px;
+    padding: 28px 32px;
+    max-width: 46rem;
+  }
+  .honesty-card h3 {
+    margin: 0 0 12px;
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    font-weight: 700;
+  }
+  .honesty-card p {
+    margin: 0 0 14px;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+  .honesty-card p:last-child { margin-bottom: 0; }
+  .warn {
+    background: rgba(255, 138, 61, 0.08);
+    border-left: 3px solid var(--orange);
+    padding: 12px 14px;
+    border-radius: 0 12px 12px 0;
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  .contact-arena {
+    position: relative;
+    border-radius: calc(var(--radius) + 12px);
+    padding: 3px;
+    background: conic-gradient(from var(--angle), var(--cyan), var(--violet), var(--magenta), var(--cyan));
+    animation: border-spin 4s linear infinite;
+  }
+  .contact-arena__inner {
+    position: relative;
+    background: rgba(2, 2, 6, 0.92);
+    border-radius: calc(var(--radius) + 9px);
+    padding: clamp(40px, 6vw, 64px);
+    text-align: center;
+  }
+  .contact-arena h2 {
+    font-family: var(--font-display);
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    font-weight: 800;
+    margin: 0 0 16px;
+    letter-spacing: -0.04em;
+  }
+  .contact-arena p {
+    margin: 0 auto 28px;
+    color: var(--muted);
+    max-width: 52ch;
+    line-height: 1.75;
+  }
+  .contact-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: center;
+  }
+
+  @media (max-width: 900px) {
+    .hero-grid { grid-template-columns: 1fr; }
+    .feature-grid { grid-template-columns: 1fr; }
+    .hero h1 { max-width: none; }
+  }
+  @media (max-width: 720px) {
+    .hero { min-height: auto; padding: 88px 0 40px; }
+    .section-block { padding: 72px 0 40px; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bot-page">
+  <section class="hero wrap">
+    <div class="hero-inner">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow" data-reveal><span class="eyebrow-dot"></span>WhoUpdate · Telegram</div>
+          <h1 data-reveal data-reveal-delay="1">
+            Как посмотреть удалённые сообщения в Telegram
+            <span class="highlight">бот для ТГ</span>
+          </h1>
+          <p class="hero-sub" data-reveal data-reveal-delay="2">Бот для просмотра удалённых и изменённых сообщений: подключается через автоматизацию чатов и присылает копию, когда собеседник стирает или правит текст. Без паролей, без SMS-кодов, без сторонних APK.</p>
+          <div class="hero-cta" data-reveal data-reveal-delay="3">
+            <a class="btn btn-primary btn-arrow" href="https://t.me/who_update_bot" target="_blank" rel="noopener">Подключить WhoUpdate</a>
+            <a class="btn btn-ghost btn-arrow" href="#how">Как это работает</a>
+          </div>
+          <p class="hero-note" data-reveal data-reveal-delay="4">Официальная функция Telegram · личные чаты · отключается в настройках</p>
+        </div>
+
+        <aside class="mock-panel holo-card tilt-card" aria-label="Примеры уведомлений" data-reveal data-reveal-delay="2">
+          <div class="mock-bubble">
+            <div class="mock-label">Удаление</div>
+            <div class="mock-title">Алина удалила сообщение</div>
+            <blockquote class="mock-quote">Приеду к восьми, не опаздывай</blockquote>
+            <div class="mock-meta">сохранено WhoUpdate · сейчас</div>
+          </div>
+          <div class="mock-bubble">
+            <div class="mock-label">Правка</div>
+            <div class="mock-title">Текст изменили</div>
+            <blockquote class="mock-quote"><b>Было:</b> встречаемся у метро<br><b>Стало:</b> давай перенесём на завтра</blockquote>
+            <div class="mock-meta">diff в одном уведомлении</div>
+          </div>
+          <div class="mock-bubble">
+            <div class="mock-label">Медиа</div>
+            <div class="mock-title">Голосовое пришло в WhoUpdate</div>
+            <blockquote class="mock-quote">фото, видео и аудио бот пересылает вам сразу в Telegram</blockquote>
+            <div class="mock-meta">открывается прямо в чате с ботом</div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-block wrap" id="features">
+    <span class="section-num" aria-hidden="true">01</span>
+    <div data-reveal>
+      <div class="eyebrow"><span class="eyebrow-dot"></span>Возможности</div>
+      <h2 class="section-title gradient-text">Что делает WhoUpdate</h2>
+      <p class="section-sub">Это не «восстановление переписки из воздуха». WhoUpdate ведёт архив с момента подключения и сообщает о том, что пытаются спрятать.</p>
+    </div>
+    <div class="feature-grid">
+      <article class="feature-card holo-card" data-reveal data-reveal-delay="1">
+        <h3>Удаления сразу</h3>
+        <p>Когда сообщение исчезает из чата, бот присылает уведомление с сохранённым текстом — если успел его записать.</p>
+      </article>
+      <article class="feature-card holo-card" data-reveal data-reveal-delay="2">
+        <h3>Правки до и после</h3>
+        <p>Видите старую и новую версию. Удобно ловить «лёгкие» правки смысла, цифр и договорённостей.</p>
+      </article>
+      <article class="feature-card holo-card" data-reveal data-reveal-delay="3">
+        <h3>Медиа сразу в Telegram</h3>
+        <p>Фото, видео, голос, документы и стикеры бот присылает вам в чат — открываете прямо в Telegram.</p>
+      </article>
+      <article class="feature-card holo-card" data-reveal data-reveal-delay="4">
+        <h3>Одноразовые фото и видео</h3>
+        <p>Не открывайте view-once. Ответьте на сообщение любым текстом (reply) — WhoUpdate пришлёт копию в чат с ботом.</p>
+      </article>
+      <article class="feature-card holo-card" data-reveal data-reveal-delay="5">
+        <h3>Только ваши чаты</h3>
+        <p>Бот работает с личными диалогами через автоматизацию Telegram. Чужие переписки читать нельзя — и не нужно.</p>
+      </article>
+      <article class="feature-card holo-card" data-reveal data-reveal-delay="6">
+        <h3>Без доступа к аккаунту</h3>
+        <p>Не просим номер, код из SMS или облачный пароль. Подключение — штатное, прямо в настройках Telegram.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="section-block wrap" id="how">
+    <span class="section-num" aria-hidden="true">02</span>
+    <div data-reveal>
+      <div class="eyebrow"><span class="eyebrow-dot"></span>Подключение</div>
+      <h2 class="section-title gradient-text">Запуск за минуту</h2>
+      <p class="section-sub">Никаких сторонних клиентов. Всё через раздел автоматизации чатов в Telegram.</p>
+    </div>
+    <div class="steps-grid">
+      <article class="step-card holo-card" data-reveal data-reveal-delay="1">
+        <div>
+          <h3>Откройте профиль</h3>
+          <p>В Telegram: «Редактировать профиль» → прокрутите до «Автоматизация чатов» → «Добавить бота».</p>
+        </div>
+      </article>
+      <article class="step-card holo-card" data-reveal data-reveal-delay="2">
+        <div>
+          <h3>Найдите WhoUpdate</h3>
+          <p>В поиске введите <b>@who_update_bot</b> и выберите бота.</p>
+        </div>
+      </article>
+      <article class="step-card holo-card" data-reveal data-reveal-delay="3">
+        <div>
+          <h3>Разрешите чаты</h3>
+          <p>Укажите, к каким личным диалогам бот получает доступ. Можно начать с важных переписок.</p>
+        </div>
+      </article>
+      <article class="step-card holo-card" data-reveal data-reveal-delay="4">
+        <div>
+          <h3>Напишите /start</h3>
+          <p>Откройте бота в личке и отправьте /start — придёт короткая инструкция. Дальше уведомления идут сами.</p>
+        </div>
+      </article>
+    </div>
+    <p style="margin-top: 28px;" data-reveal>
+      <a class="btn btn-primary btn-arrow" href="https://t.me/who_update_bot" target="_blank" rel="noopener">Открыть @who_update_bot</a>
+    </p>
+  </section>
+
+  <section class="section-block wrap" id="honesty">
+    <span class="section-num" aria-hidden="true">03</span>
+    <div data-reveal>
+      <div class="eyebrow"><span class="eyebrow-dot"></span>Честно о границах</div>
+      <h2 class="section-title gradient-text">Чего бот не умеет</h2>
+    </div>
+    <div class="honesty-card holo-card" data-reveal data-reveal-delay="1">
+      <h3>Нет магии «достать всё задним числом»</h3>
+      <p>WhoUpdate сохраняет переписку <b>с момента подключения</b>. Сообщения, удалённые раньше, Telegram API не отдаёт — ни нам, ни «сервисам восстановления».</p>
+      <p class="warn">Если сайт просит номер телефона и код из SMS «чтобы восстановить чат» — это захват аккаунта. Код из Telegram вводите только в самом Telegram.</p>
+      <p>Ещё два спокойных ограничения: при сбоях сети отдельные события могут прийти с задержкой; одноразовые фото/видео нужно сохранить reply’ем <b>до открытия</b> — после просмотра Telegram их уже не отдаёт.</p>
+    </div>
+  </section>
+
+  <section class="section-block wrap" id="faq">
+    <span class="section-num" aria-hidden="true">04</span>
+    <div data-reveal>
+      <div class="eyebrow"><span class="eyebrow-dot"></span>FAQ</div>
+      <h2 class="section-title gradient-text">Частые вопросы</h2>
+    </div>
+    <div class="faq-list">
+      <details class="faq-item" data-reveal data-reveal-delay="1">
+        <summary>Как посмотреть удалённые сообщения в ТГ?</summary>
+        <p>Штатно Telegram их не показывает. Подключите WhoUpdate в «Автоматизация чатов» — бот сохранит переписку с момента подключения и пришлёт копию, когда собеседник удалит или изменит сообщение.</p>
+      </details>
+      <details class="faq-item" data-reveal data-reveal-delay="2">
+        <summary>Можно ли восстановить удалённые сообщения в Telegram?</summary>
+        <p>Только если бот уже был подключён до удаления. Сообщения, стёртые раньше, API не отдаёт — обещания «восстановить любую переписку» обычно мошенничество.</p>
+      </details>
+      <details class="faq-item" data-reveal data-reveal-delay="3">
+        <summary>Нужен ли Telegram Premium?</summary>
+        <p>Нет. Автоматизация чатов доступна обычным аккаунтам. Подключите бота в настройках профиля.</p>
+      </details>
+      <details class="faq-item" data-reveal data-reveal-delay="4">
+        <summary>Собеседник увидит, что бот подключён?</summary>
+        <p>Уведомления приходят только вам, в чат с WhoUpdate. В диалоге с собеседником бот ничего не пишет.</p>
+      </details>
+      <details class="faq-item" data-reveal data-reveal-delay="5">
+        <summary>Можно ли читать чужие переписки?</summary>
+        <p>Нет. WhoUpdate работает только с вашим аккаунтом и только с чатами, которые вы сами разрешили.</p>
+      </details>
+      <details class="faq-item" data-reveal data-reveal-delay="6">
+        <summary>Покажет ли сообщения, удалённые до подключения?</summary>
+        <p>Нет. Архив начинается с момента, когда бот подключён. Обещания «восстановить любую переписку» — красный флаг.</p>
+      </details>
+      <details class="faq-item" data-reveal data-reveal-delay="7">
+        <summary>Как сохранить одноразовое фото или видео?</summary>
+        <p>Не открывайте его. Сделайте reply любым текстом на это сообщение — WhoUpdate пришлёт копию вам в чат с ботом. Если уже открыли — восстановить нельзя.</p>
+      </details>
+      <details class="faq-item" data-reveal data-reveal-delay="8">
+        <summary>Как отключить?</summary>
+        <p>«Редактировать профиль» → «Автоматизация чатов» → уберите WhoUpdate. Доступ прекратится сразу.</p>
+      </details>
+    </div>
+  </section>
+
+  <section class="section-block wrap" id="start">
+    <div class="contact-arena" data-reveal>
+      <div class="contact-arena__inner">
+        <h2 class="gradient-text">Подключите архив, пока важное не стёрли</h2>
+        <p>WhoUpdate начнёт сохранять личные чаты сразу после подключения: удаления, правки и медиа больше не растворяются незаметно.</p>
+        <div class="contact-actions">
+          <a class="btn btn-primary btn-arrow" href="https://t.me/who_update_bot" target="_blank" rel="noopener">Подключить WhoUpdate</a>
+          <a class="btn btn-ghost" href="https://t.me/who_update_bot" target="_blank" rel="noopener">@who_update_bot</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var finePointer = window.matchMedia("(pointer: fine)").matches;
+  if (!reduced) {
+    document.querySelectorAll("[data-reveal]").forEach(function (el) {
+      var delay = el.getAttribute("data-reveal-delay");
+      if (delay) el.style.transitionDelay = (parseInt(delay, 10) * 0.1) + "s";
+    });
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.08, rootMargin: "0px 0px -60px 0px" });
+    document.querySelectorAll("[data-reveal]").forEach(function (el) { observer.observe(el); });
+  } else {
+    document.querySelectorAll("[data-reveal]").forEach(function (el) { el.classList.add("is-visible"); });
+  }
+  document.querySelectorAll(".holo-card").forEach(function (card) {
+    card.addEventListener("mousemove", function (e) {
+      var rect = card.getBoundingClientRect();
+      card.style.setProperty("--card-x", ((e.clientX - rect.left) / rect.width) * 100 + "%");
+      card.style.setProperty("--card-y", ((e.clientY - rect.top) / rect.height) * 100 + "%");
+    });
+  });
+  if (finePointer && !reduced) {
+    document.querySelectorAll(".tilt-card").forEach(function (card) {
+      card.addEventListener("mousemove", function (e) {
+        var rect = card.getBoundingClientRect();
+        var x = (e.clientX - rect.left) / rect.width - 0.5;
+        var y = (e.clientY - rect.top) / rect.height - 0.5;
+        card.style.transform = "perspective(1000px) rotateY(" + (x * 10) + "deg) rotateX(" + (-y * 10) + "deg)";
+      });
+      card.addEventListener("mouseleave", function () { card.style.transform = ""; });
+    });
+  }
+})();
+</script>
+{% endblock %}

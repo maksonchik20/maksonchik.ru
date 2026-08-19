@@ -1,0 +1,23 @@
+<section id="faq" class="section-block wrap">
+  <span class="section-num" aria-hidden="true">{{ faq_section_num|default:"04" }}</span>
+  <div class="section-head" data-reveal>
+    <h2 class="section-title gradient-text">Частые вопросы</h2>
+  </div>
+  {% if faq_sub %}
+  <p class="section-sub" data-reveal data-reveal-delay="1">{{ faq_sub }}</p>
+  {% endif %}
+  <div class="faq-list">
+    {% for item in faq %}
+    <details class="faq-item" data-reveal data-reveal-delay="{{ forloop.counter }}">
+      <summary>{{ item.q }}</summary>
+      <p>
+        {% if item.a_lead %}
+          {{ item.a_lead }}<a href="{{ site.telegram }}" target="_blank" rel="noopener">{{ site.telegram_handle }}</a>{{ item.a_tail }}
+        {% else %}
+          {{ item.a }}
+        {% endif %}
+      </p>
+    </details>
+    {% endfor %}
+  </div>
+</section>

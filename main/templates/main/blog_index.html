@@ -1,0 +1,130 @@
+{% extends "main/base.html" %}
+
+{% block page_title %}{{ blog_index.title }}{% endblock %}
+{% block meta_description %}{{ blog_index.description }}{% endblock %}
+{% block canonical_url %}{{ blog_index.url }}{% endblock %}
+{% block og_title %}{{ blog_index.title }}{% endblock %}
+{% block og_description %}{{ blog_index.description }}{% endblock %}
+{% block og_url %}{{ blog_index.url }}{% endblock %}
+
+{% block nav_links %}
+<a class="hide-sm" href="/">Главная</a>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .blog-page { padding: 120px 0 80px; }
+  .blog-hero h1 {
+    font-family: var(--font-display);
+    font-size: clamp(2.2rem, 5vw, 3.5rem);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    margin: 0 0 16px;
+    line-height: 1.05;
+  }
+  .blog-hero p {
+    color: var(--muted);
+    max-width: 58ch;
+    line-height: 1.75;
+    margin: 0 0 48px;
+    font-size: 1.08rem;
+  }
+  .blog-group { margin-bottom: 56px; }
+  .blog-group h2 {
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin: 0 0 20px;
+    color: var(--cyan);
+    letter-spacing: -0.02em;
+  }
+  .blog-list {
+    display: grid;
+    gap: 16px;
+  }
+  .blog-card {
+    display: block;
+    padding: 24px 28px;
+    border-radius: calc(var(--radius) - 4px);
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.02);
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.25s ease, transform 0.25s ease;
+  }
+  .blog-card:hover {
+    border-color: rgba(0, 245, 255, 0.25);
+    transform: translateY(-2px);
+  }
+  .blog-card h3 {
+    margin: 0 0 8px;
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+  .blog-card p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+    line-height: 1.6;
+  }
+  .blog-card__tag {
+    display: inline-block;
+    margin-bottom: 10px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--violet);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="blog-page wrap">
+  <header class="blog-hero">
+    <h1 class="gradient-text">Блог</h1>
+    <p>Статьи для владельцев бизнеса — сайты, Telegram-боты, заявки из поиска и автоматизация без лишней теории.</p>
+  </header>
+
+  <section class="blog-group">
+    <h2>Для бизнеса</h2>
+    <div class="blog-list">
+      {% for article in business_articles %}
+      <a class="blog-card holo-card" href="/blog/{{ article.slug }}/">
+        <span class="blog-card__tag">{{ article.category_label }}</span>
+        <h3>{{ article.h1 }}</h3>
+        <p>{{ article.description }}</p>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="blog-group">
+    <h2>Для ниш</h2>
+    <div class="blog-list">
+      {% for article in niche_articles %}
+      <a class="blog-card holo-card" href="/blog/{{ article.slug }}/">
+        <span class="blog-card__tag">{{ article.category_label }}</span>
+        <h3>{{ article.h1 }}</h3>
+        <p>{{ article.description }}</p>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="blog-group">
+    <h2>Процесс разработки</h2>
+    <div class="blog-list">
+      {% for article in process_articles %}
+      <a class="blog-card holo-card" href="/blog/{{ article.slug }}/">
+        <span class="blog-card__tag">{{ article.category_label }}</span>
+        <h3>{{ article.h1 }}</h3>
+        <p>{{ article.description }}</p>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

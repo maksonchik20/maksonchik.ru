@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="WhoUpdate">
+  <circle cx="64" cy="64" r="64" fill="#B7D9D1"/>
+  <ellipse cx="64" cy="108" rx="22" ry="5" fill="#7AA89C" opacity="0.45"/>
+  <path
+    d="M40 46 C40 30 52 20 64 20 C76 20 88 30 88 46 L88 88 C88 88 82 82 78 88 C74 94 70 88 64 94 C58 88 54 94 50 88 C46 82 40 88 40 88 Z"
+    fill="#FFFFFF"
+    stroke="#2B2F33"
+    stroke-width="4"
+    stroke-linejoin="round"
+  />
+  <path d="M44 62 C38 66 38 74 44 76" fill="none" stroke="#2B2F33" stroke-width="4" stroke-linecap="round"/>
+  <path d="M84 62 C90 66 90 74 84 76" fill="none" stroke="#2B2F33" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="54" cy="48" r="4.2" fill="#2B2F33"/>
+  <circle cx="74" cy="48" r="4.2" fill="#2B2F33"/>
+  <circle cx="55.2" cy="46.8" r="1.1" fill="#FFFFFF"/>
+  <circle cx="75.2" cy="46.8" r="1.1" fill="#FFFFFF"/>
+  <path d="M58 56 Q64 62 70 56" fill="none" stroke="#2B2F33" stroke-width="3" stroke-linecap="round"/>
+  <path
+    d="M46 68 H82 A8 8 0 0 1 90 76 V84 A8 8 0 0 1 82 92 H54 L46 98 V76 A8 8 0 0 1 54 68 Z"
+    fill="#B7D9D1"
+    stroke="#2B2F33"
+    stroke-width="3.5"
+    stroke-linejoin="round"
+  />
+  <circle cx="58" cy="80" r="3" fill="#2B2F33"/>
+  <circle cx="68" cy="80" r="3" fill="#2B2F33"/>
+  <circle cx="78" cy="80" r="3" fill="#2B2F33"/>
+</svg>

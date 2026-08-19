@@ -1,0 +1,220 @@
+{% extends "main/base.html" %}
+
+{% block page_title %}{{ article.title }}{% endblock %}
+{% block meta_description %}{{ article.description }}{% endblock %}
+{% block canonical_url %}{{ article.url }}{% endblock %}
+{% block og_title %}{{ article.title }}{% endblock %}
+{% block og_description %}{{ article.description }}{% endblock %}
+{% block og_url %}{{ article.url }}{% endblock %}
+
+{% block nav_links %}
+<a class="hide-sm" href="/blog/">Блог</a>
+<a class="hide-sm" href="/">Главная</a>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .article-page { padding: 120px 0 80px; }
+  .article-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 28px;
+    transition: color 0.2s ease;
+  }
+  .article-back:hover { color: var(--cyan); }
+  .article-header { max-width: 760px; margin-bottom: 48px; }
+  .article-tag {
+    display: inline-block;
+    margin-bottom: 16px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--violet);
+  }
+  .article-meta {
+    margin: -6px 0 18px;
+    color: var(--muted);
+    font-size: 0.88rem;
+  }
+  .article-header h1 {
+    font-family: var(--font-display);
+    font-size: clamp(1.9rem, 4.5vw, 3rem);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1.1;
+    margin: 0 0 20px;
+  }
+  .article-lead {
+    color: var(--muted);
+    font-size: 1.12rem;
+    line-height: 1.75;
+    margin: 0;
+  }
+  .article-body { max-width: 720px; }
+  .article-section {
+    margin-bottom: 40px;
+  }
+  .article-section h2 {
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin: 0 0 16px;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+  .article-section p {
+    margin: 0 0 14px;
+    color: var(--muted);
+    font-size: 1.02rem;
+    line-height: 1.75;
+  }
+  .article-section p:last-child { margin-bottom: 0; }
+  .article-links-note {
+    margin: 0 0 40px;
+    padding: 20px 24px;
+    border-radius: calc(var(--radius) - 4px);
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.02);
+    color: var(--muted);
+    font-size: 0.98rem;
+    line-height: 1.7;
+  }
+  .article-links-note a {
+    color: var(--cyan);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .article-links-note a:hover { text-decoration: underline; }
+  .article-related {
+    margin: 48px 0 0;
+    padding: 28px;
+    border-radius: var(--radius);
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.02);
+  }
+  .article-related h2 {
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin: 0 0 16px;
+    color: var(--ink);
+  }
+  .article-related ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+  }
+  .article-related a {
+    color: var(--muted);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+  .article-related a:hover { color: var(--cyan); }
+  .article-related a::before {
+    content: "→ ";
+    color: var(--violet);
+  }
+  .article-cta {
+    margin-top: 56px;
+    padding: 32px;
+    border-radius: var(--radius);
+    border: 1px solid rgba(0, 245, 255, 0.2);
+    background: rgba(0, 245, 255, 0.04);
+  }
+  .article-cta h2 {
+    font-family: var(--font-display);
+    font-size: 1.4rem;
+    font-weight: 800;
+    margin: 0 0 12px;
+  }
+  .article-cta p {
+    margin: 0 0 20px;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+  .article-cta__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  @media (max-width: 720px) {
+    .article-page { padding: 88px 0 48px; }
+  }
+</style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "{{ article.h1|escapejs }}",
+  "description": "{{ article.description|escapejs }}",
+  "url": "{{ article.url }}",
+  "dateModified": "{{ article.date_modified }}",
+  "author": {
+    "@type": "Person",
+    "name": "{{ site.name }}",
+    "url": "{{ site.url }}"
+  },
+  "publisher": {
+    "@type": "Person",
+    "name": "{{ site.name }}"
+  }
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<article class="article-page wrap">
+  <a class="article-back" href="/blog/">← Все статьи</a>
+
+  <header class="article-header">
+    <span class="article-tag">{{ article.category_label }}</span>
+    <h1>{{ article.h1 }}</h1>
+    <p class="article-meta">Автор: {{ site.name }} · Обновлено <time datetime="{{ article.date_modified }}">{{ article.date_modified_label }}</time></p>
+    <p class="article-lead">{{ article.description }}</p>
+  </header>
+
+  <div class="article-body">
+    <p class="article-links-note">{{ article.links_note_html|safe }}</p>
+
+    {% for section in article.sections %}
+    <section class="article-section">
+      <h2>{{ section.heading }}</h2>
+      {% for paragraph in section.paragraphs %}
+      <p>{{ paragraph }}</p>
+      {% endfor %}
+    </section>
+    {% endfor %}
+
+    <nav class="article-related holo-card" aria-label="Связанные услуги">
+      <h2>Также могу сделать</h2>
+      <ul>
+        {% for link in article.related_services %}
+        <li><a href="{{ link.url }}">{{ link.label }}</a></li>
+        {% endfor %}
+      </ul>
+    </nav>
+
+    <aside class="article-cta holo-card">
+      <h2 class="gradient-text">Нужна помощь с проектом?</h2>
+      <p>Разрабатываю сайты и Telegram-боты под ключ — напишите в Telegram, обсудим задачу и смету.</p>
+      <div class="article-cta__links">
+        <a class="btn btn-primary btn-arrow" href="{{ site.telegram }}" target="_blank" rel="noopener">{{ site.telegram_handle }}</a>
+        <a class="btn btn-ghost btn-arrow" href="{{ article.service_url }}">{{ article.service_label }}</a>
+        {% for link in article.related_services|slice:":2" %}
+        <a class="btn btn-ghost btn-arrow" href="{{ link.url }}">{{ link.label }}</a>
+        {% endfor %}
+      </div>
+    </aside>
+  </div>
+</article>
+{% endblock %}

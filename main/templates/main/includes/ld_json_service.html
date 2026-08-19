@@ -1,0 +1,26 @@
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Service",
+      "@id": "{{ page.url }}#service",
+      "name": "{{ page.h1|escapejs }}",
+      "url": "{{ page.url }}",
+      "description": "{{ page.description|escapejs }}",
+      "areaServed": "{{ schema.area_served }}",
+      "provider": {"@id": "{{ site.url }}#person"}
+    },
+    {
+      "@type": "Person",
+      "@id": "{{ site.url }}#person",
+      "name": "{{ site.name }}",
+      "url": "{{ site.url }}",
+      "jobTitle": "Разработчик сайтов и Telegram-ботов",
+      "telephone": "{{ schema.telephone }}",
+      "email": "{{ site.email }}",
+      "sameAs": ["{{ site.telegram }}"]
+    }
+  ]
+}
+</script>
