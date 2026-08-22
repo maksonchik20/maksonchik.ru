@@ -68,3 +68,9 @@ class LeadFormTest(TestCase):
         self.assertContains(response, "Базовая SEO-настройка")
         self.assertContains(response, "Яндекс Метрики")
         self.assertContains(response, "Поддержка после запуска")
+
+    def test_home_offers_custom_automation(self):
+        response = self.client.get("/")
+
+        self.assertContains(response, "Любая автоматизация")
+        self.assertContains(response, "интеграции с сервисами")
