@@ -63,7 +63,7 @@ class LeadFormTest(TestCase):
         response = self.client.get("/")
 
         self.assertContains(response, "В каждый сайт уже входит")
-        self.assertContains(response, "Адаптивная версия")
+        self.assertContains(response, "Адаптивная версия для смартфонов, планшетов и ноутбуков")
         self.assertContains(response, "Подключение домена")
         self.assertContains(response, "Базовая SEO-настройка")
         self.assertContains(response, "Яндекс Метрики")
