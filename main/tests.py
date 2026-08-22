@@ -74,3 +74,8 @@ class LeadFormTest(TestCase):
 
         self.assertContains(response, "Любая автоматизация")
         self.assertContains(response, "интеграции с сервисами")
+
+    def test_privacy_page_contains_operator_inn(self):
+        response = self.client.get("/privacy/")
+
+        self.assertContains(response, "ИНН 330640351621")
