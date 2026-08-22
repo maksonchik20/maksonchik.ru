@@ -8,6 +8,8 @@ urlpatterns = [
     path("favicon.svg", views.favicon_svg, name="favicon_svg"),
     path("favicon-120.png", views.favicon_png, name="favicon_png"),
     path("", views.index, name="home"),
+    path("request/", views.submit_lead, name="submit_lead"),
+    path("privacy/", views.privacy, name="privacy"),
     path("for-flowers/", views.ForFlowersRedirect.as_view(), name="for_flowers"),
     path(
         "services/site-for-flower-store/",

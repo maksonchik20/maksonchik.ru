@@ -1,0 +1,22 @@
+{% extends "main/base.html" %}
+
+{% block page_title %}Политика обработки персональных данных — maksonchik.ru{% endblock %}
+{% block meta_description %}Политика обработки персональных данных сайта maksonchik.ru.{% endblock %}
+{% block canonical_url %}https://maksonchik.ru/privacy/{% endblock %}
+
+{% block content %}
+<section class="section-block wrap legal-page">
+  <div class="eyebrow"><span class="eyebrow-dot"></span>Документы</div>
+  <h1 class="section-title gradient-text">Политика обработки персональных данных</h1>
+  <div class="legal-copy holo-card">
+    <p>Оператор сайта — Максим Горшунов. Контактный email: <a href="mailto:{{ site.email }}">{{ site.email }}</a>.</p>
+    <h2>Какие данные обрабатываются</h2>
+    <p>При отправке формы сохраняются имя, указанный вами способ связи, описание задачи, адрес страницы и рекламные метки. Данные используются только для ответа на обращение и подготовки предложения.</p>
+    <h2>Хранение и передача</h2>
+    <p>Заявки хранятся в защищённой административной части сайта. Уведомление о новой заявке передаётся оператору через Telegram. Данные не продаются и не передаются третьим лицам, кроме случаев, предусмотренных законом.</p>
+    <h2>Ваши права</h2>
+    <p>Вы можете запросить уточнение или удаление данных, написав на <a href="mailto:{{ site.email }}">{{ site.email }}</a>. Отправляя форму, вы подтверждаете согласие с этой политикой.</p>
+    <p>Дата публикации: 22 августа 2026 года.</p>
+  </div>
+</section>
+{% endblock %}
