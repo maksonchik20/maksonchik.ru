@@ -11,6 +11,7 @@ from requests.adapters import HTTPAdapter
 from env import TOKEN_BOT
 from .inner_models.BusinessConnection import BusinessConnection
 from .bot_outgoing_log import log_bot_outgoing
+from .metrics import TELEGRAM_MESSAGES_SENT, TELEGRAM_SEND_DURATION, observe_metric
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,8 @@ def telegram_webhook_secret() -> str:
 
 def _telegram_post(method: str, *, json=None, data=None, files=None, timeout: int = TELEGRAM_API_TIMEOUT):
     """POST к Bot API с connection pool и circuit breaker для endpoint'ов."""
+    started_at = time.monotonic()
+    is_send = method.startswith("send")
     last_error = None
     attempted = False
     now = time.monotonic()
@@ -85,6 +88,19 @@ def _telegram_post(method: str, *, json=None, data=None, files=None, timeout: in
                 verify=endpoint.get("verify", True),
             )
             _mark_endpoint_healthy(endpoint["base"])
+            if is_send:
+                try:
+                    success = bool(response.json().get("ok"))
+                except ValueError:
+                    success = False
+                labels = {"method": method, "status": "success" if success else "error"}
+                observe_metric(
+                    TELEGRAM_SEND_DURATION,
+                    (time.monotonic() - started_at) * 1000,
+                    labels,
+                )
+                if success:
+                    observe_metric(TELEGRAM_MESSAGES_SENT, 1, {"method": method})
             return response
         except requests.RequestException as exc:
             last_error = exc
@@ -96,8 +112,20 @@ def _telegram_post(method: str, *, json=None, data=None, files=None, timeout: in
                 _safe_telegram_error(exc),
             )
     if last_error:
+        if is_send:
+            observe_metric(
+                TELEGRAM_SEND_DURATION,
+                (time.monotonic() - started_at) * 1000,
+                {"method": method, "status": "error"},
+            )
         raise requests.ConnectionError(_safe_telegram_error(last_error))
     if not attempted:
+        if is_send:
+            observe_metric(
+                TELEGRAM_SEND_DURATION,
+                (time.monotonic() - started_at) * 1000,
+                {"method": method, "status": "error"},
+            )
         raise requests.ConnectionError("Telegram API endpoints temporarily disabled by circuit breaker")
     raise RuntimeError("Telegram API недоступен")
 

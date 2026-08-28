@@ -219,6 +219,31 @@ class WhoUpdatePaymentOrder(models.Model):
         return f"{self.user} — {self.get_plan_display()} ({self.get_status_display()})"
 
 
+class OperationalMetricBucket(models.Model):
+    """Минутный буфер метрик перед отправкой в Yandex Monitoring."""
+
+    metric_name = models.CharField(max_length=128, db_index=True)
+    minute = models.DateTimeField(db_index=True)
+    labels_hash = models.CharField(max_length=64)
+    labels = models.JSONField(default=dict)
+    count = models.PositiveBigIntegerField(default=0)
+    total = models.FloatField(default=0)
+    maximum = models.FloatField(default=0)
+    exported_at = models.DateTimeField(blank=True, null=True, db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("metric_name", "minute", "labels_hash"),
+                name="unique_operational_metric_bucket",
+            )
+        ]
+        ordering = ("minute", "metric_name")
+
+    def __str__(self):
+        return f"{self.metric_name} @ {self.minute:%Y-%m-%d %H:%M}"
+
+
 class MutedPeer(models.Model):
     """Пользователи, чьи входящие business-сообщения автоудаляются у обоих."""
 

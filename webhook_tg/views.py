@@ -7,6 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 import hmac
 import json
 import logging
+import time
 import subprocess
 import sys
 from datetime import timedelta
@@ -33,6 +34,7 @@ from .telegram import (
     download_telegram_file_bytes,
     _guess_media_filename,
 )
+from .metrics import WEBHOOK_DURATION, observe_metric
 from .config import (
     START_PHOTO_ID,
     START_TEXT,
@@ -229,6 +231,23 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
 
 @csrf_exempt
 def webhook_tg(request: HttpRequest):
+    started_at = time.monotonic()
+    response = None
+    try:
+        response = _webhook_tg_response(request)
+        return response
+    finally:
+        observe_metric(
+            WEBHOOK_DURATION,
+            (time.monotonic() - started_at) * 1000,
+            {
+                "method": request.method,
+                "status": getattr(response, "status_code", 500),
+            },
+        )
+
+
+def _webhook_tg_response(request: HttpRequest):
     if request.method != "POST":
         return HttpResponse(status=405)
 

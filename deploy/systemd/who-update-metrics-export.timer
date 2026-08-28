@@ -1,0 +1,12 @@
+[Unit]
+Description=Export WhoUpdate operational metrics every minute
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Persistent=true
+Unit=who-update-metrics-export.service
+
+[Install]
+WantedBy=timers.target
