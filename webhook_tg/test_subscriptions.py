@@ -5,7 +5,7 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from .models import UserTg, WhoUpdatePaymentOrder
+from .models import TelegramOutbox, UserTg, WhoUpdatePaymentOrder
 from .payment_views import fulfill_order
 from .subscriptions import (
     OWNER_TELEGRAM_ID,
@@ -80,7 +80,7 @@ class WhoUpdateAccessTests(TestCase):
         send_message.assert_called_once()
         message = send_message.call_args.args[1]
         keyboard = send_message.call_args.kwargs["reply_markup"]
-        self.assertIn("1 ₽", message)
+        self.assertIn("99 ₽", message)
         self.assertIn("https://t.me/who_update_bot?start=ref_", message)
         self.assertIn("/referral", message)
         self.assertEqual(len(keyboard["inline_keyboard"]), 3)
@@ -116,9 +116,9 @@ class WhoUpdatePaymentTests(TestCase):
             "metadata": {"service": "who_update", "order_id": str(self.order.public_id)},
         }
 
-    def test_test_price_is_only_for_owner_month_plan(self):
+    def test_month_price_is_the_same_for_owner_and_regular_user(self):
         regular_user = UserTg.objects.create(user_id=300, chat_id=300)
-        self.assertEqual(plan_config_for_user(self.user, "month")["amount"], Decimal("1.00"))
+        self.assertEqual(plan_config_for_user(self.user, "month")["amount"], Decimal("99.00"))
         self.assertEqual(plan_config_for_user(regular_user, "month")["amount"], Decimal("99.00"))
         self.assertEqual(
             plan_config_for_user(self.user, "three_months")["amount"],
@@ -126,7 +126,7 @@ class WhoUpdatePaymentTests(TestCase):
         )
 
     @patch("webhook_tg.payment_views.create_payment")
-    def test_owner_month_checkout_creates_one_ruble_order(self, create_payment_mock):
+    def test_month_checkout_creates_order_and_owner_notification(self, create_payment_mock):
         create_payment_mock.return_value = {
             "id": "test-one-ruble-payment",
             "confirmation_url": "https://yookassa.test/confirmation",
@@ -135,8 +135,13 @@ class WhoUpdatePaymentTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         order = WhoUpdatePaymentOrder.objects.get(yookassa_payment_id="test-one-ruble-payment")
-        self.assertEqual(order.amount, Decimal("1.00"))
-        self.assertEqual(create_payment_mock.call_args.kwargs["amount"], Decimal("1.00"))
+        self.assertEqual(order.amount, Decimal("99.00"))
+        self.assertEqual(create_payment_mock.call_args.kwargs["amount"], Decimal("99.00"))
+        notification = TelegramOutbox.objects.get(
+            dedup_key=f"who-update-payment-open:{order.public_id}"
+        )
+        self.assertIn("переход к оплате", notification.payload["text"])
+        self.assertIn("99.00 ₽", notification.payload["text"])
 
     @patch("webhook_tg.payment_views.tg_send_message", return_value=True)
     @patch("webhook_tg.payment_views.get_payment")
@@ -154,6 +159,11 @@ class WhoUpdatePaymentTests(TestCase):
         self.assertEqual(self.user.access_expires_at, original_expiry + timedelta(days=30))
         self.assertEqual(get_payment_mock.call_count, 1)
         send_message.assert_called_once()
+        notification = TelegramOutbox.objects.get(
+            dedup_key=f"who-update-payment-paid:{self.order.public_id}"
+        )
+        self.assertIn("получена оплата", notification.payload["text"])
+        self.assertIn("99.00 ₽", notification.payload["text"])
 
     @patch("webhook_tg.payment_views.get_payment")
     def test_forwarded_webhook_fulfills_order(self, get_payment_mock):

@@ -1,0 +1,12 @@
+[Unit]
+Description=Process WhoUpdate Telegram outbox every 10 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=10s
+AccuracySec=2s
+Persistent=true
+Unit=who-update-outbox.service
+
+[Install]
+WantedBy=timers.target

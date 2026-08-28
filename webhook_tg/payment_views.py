@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import hmac
 import json
 import logging
@@ -15,13 +16,64 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
-from .models import UserTg, WhoUpdatePaymentOrder
+from .config import OWNER_CHAT_ID
+from .models import TelegramOutbox, UserTg, WhoUpdatePaymentOrder
+from .outbox import enqueue_outbox
 from .subscriptions import CHECKOUT_SIGNING_SALT, plan_config_for_user
 from .telegram import tg_send_message
 from .yookassa import YooKassaError, create_payment, get_payment, is_webhook_ip
 
 
 logger = logging.getLogger(__name__)
+
+
+def _user_label(bot_user):
+    username = str(bot_user.username or "").strip().lstrip("@")
+    username_line = f"@{html.escape(username)}" if username else "—"
+    return (
+        f"Пользователь: {html.escape(str(bot_user.first_name or '—'))}\n"
+        f"Username: {username_line}\n"
+        f"Telegram ID: <code>{bot_user.user_id}</code>"
+    )
+
+
+def _enqueue_owner_checkout_notification(order):
+    enqueue_outbox(
+        chat_id=OWNER_CHAT_ID,
+        method=TelegramOutbox.Method.SEND_MESSAGE,
+        dedup_key=f"who-update-payment-open:{order.public_id}",
+        payload={
+            "text": (
+                "💳 <b>WhoUpdate: переход к оплате</b>\n\n"
+                f"{_user_label(order.user)}\n"
+                f"Тариф: <b>{html.escape(order.get_plan_display())}</b>\n"
+                f"Сумма: <b>{order.amount} ₽</b>\n"
+                f"Заказ: <code>{order.public_id}</code>"
+            ),
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        },
+    )
+
+
+def _enqueue_owner_paid_notification(order, expires):
+    enqueue_outbox(
+        chat_id=OWNER_CHAT_ID,
+        method=TelegramOutbox.Method.SEND_MESSAGE,
+        dedup_key=f"who-update-payment-paid:{order.public_id}",
+        payload={
+            "text": (
+                "✅ <b>WhoUpdate: получена оплата</b>\n\n"
+                f"{_user_label(order.user)}\n"
+                f"Тариф: <b>{html.escape(order.get_plan_display())}</b>\n"
+                f"Сумма: <b>{order.amount} ₽</b>\n"
+                f"Доступ до: <b>{expires:%d.%m.%Y %H:%M}</b> МСК\n"
+                f"Заказ: <code>{order.public_id}</code>"
+            ),
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        },
+    )
 
 
 def _client_ip(request):
@@ -74,13 +126,15 @@ def fulfill_order(order, payment_id):
     )
 
     expires = timezone.localtime(bot_user.access_expires_at)
-    transaction.on_commit(
-        lambda: tg_send_message(
+    def notify_payment_completed():
+        tg_send_message(
             bot_user.chat_id,
             "✅ <b>Оплата WhoUpdate прошла</b>\n\n"
             f"Доступ продлён до <b>{expires:%d.%m.%Y %H:%M}</b> МСК.",
         )
-    )
+        _enqueue_owner_paid_notification(order, expires)
+
+    transaction.on_commit(notify_payment_completed)
     return order
 
 
@@ -126,6 +180,7 @@ def subscribe(request, plan, token):
         order.status = WhoUpdatePaymentOrder.Status.FAILED
         order.save(update_fields=["status"])
         return HttpResponse("ЮKassa не вернула ссылку на оплату.", status=502)
+    _enqueue_owner_checkout_notification(order)
     return redirect(payment["confirmation_url"])
 
 

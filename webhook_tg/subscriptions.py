@@ -23,7 +23,6 @@ PLAN_CONFIG = {
     "three_months": {"label": "3 месяца", "days": 90, "amount": Decimal("199.00")},
     "year": {"label": "1 год", "days": 365, "amount": Decimal("599.00")},
 }
-OWNER_TEST_MONTH_AMOUNT = Decimal("1.00")
 
 
 def is_subscription_rollout_user(bot_user: UserTg) -> bool:
@@ -34,10 +33,7 @@ def plan_config_for_user(bot_user: UserTg, plan: str) -> dict | None:
     config = PLAN_CONFIG.get(plan)
     if config is None:
         return None
-    config = dict(config)
-    if plan == "month" and is_subscription_rollout_user(bot_user):
-        config["amount"] = OWNER_TEST_MONTH_AMOUNT
-    return config
+    return dict(config)
 
 
 def _rubles(amount: Decimal) -> str:
