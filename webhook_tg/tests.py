@@ -194,6 +194,43 @@ class WebhookStartTests(NoTelegramApiTestCase):
             delta=1,
         )
 
+        send_message_texts = []
+        for call in self.mock_post.call_args_list:
+            url, body = get_post_call_args(call)
+            if url and "sendMessage" in str(url):
+                send_message_texts.append(body.get("text", ""))
+        self.assertFalse(
+            any("/referral" in text for text in send_message_texts),
+            "Обычным пользователям реферальный блок в /start пока не показываем",
+        )
+
+    def test_start_shows_referral_command_only_to_rollout_owner(self):
+        payload = make_start_payload(
+            chat_id=1394340082,
+            user_id=1394340082,
+            username="maksonchik200",
+            update_id=102,
+        )
+
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        send_message_texts = []
+        for call in self.mock_post.call_args_list:
+            url, body = get_post_call_args(call)
+            if url and "sendMessage" in str(url):
+                send_message_texts.append(body.get("text", ""))
+        referral_message = next(
+            (text for text in send_message_texts if "/referral" in text),
+            "",
+        )
+        self.assertIn("https://t.me/who_update_bot?start=ref_", referral_message)
+        self.assertIn("7 дней", referral_message)
+
     def test_start_does_not_schedule_reminder_for_connected_user(self):
         UserTg.objects.create(
             user_id=700002,

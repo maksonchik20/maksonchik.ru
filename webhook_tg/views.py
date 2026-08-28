@@ -53,6 +53,7 @@ from .subscriptions import (
     apply_rollout_policy,
     business_access_allowed,
     grant_referral_reward,
+    is_subscription_rollout_user,
     referral_text,
     register_referral,
     start_trial_if_needed,
@@ -204,6 +205,8 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
                 access_status_text(bot_user),
                 reply_markup=subscription_keyboard(bot_user),
             )
+        if is_subscription_rollout_user(bot_user):
+            tg_send_message(chat_id, referral_text(bot_user))
     elif command in ("/status", "/subscription", "/subscribe") and is_message_to_bot(data):
         bot_user = init_user_bot(from_user_id, chat_id, username, first_name)
         apply_rollout_policy(bot_user)

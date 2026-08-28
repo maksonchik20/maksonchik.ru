@@ -25,9 +25,13 @@ PLAN_CONFIG = {
 }
 
 
+def is_subscription_rollout_user(bot_user: UserTg) -> bool:
+    return int(bot_user.user_id) == OWNER_TELEGRAM_ID
+
+
 def apply_rollout_policy(bot_user: UserTg) -> bool:
     """Ограниченный доступ включён только владельцу до общего запуска."""
-    if int(bot_user.user_id) != OWNER_TELEGRAM_ID or not bot_user.access_unlimited:
+    if not is_subscription_rollout_user(bot_user) or not bot_user.access_unlimited:
         return False
     bot_user.access_unlimited = False
     bot_user.save(update_fields=["access_unlimited"])
@@ -136,6 +140,7 @@ def referral_text(bot_user: UserTg) -> str:
         f"За каждого человека, который впервые подключит WhoUpdate по вашей ссылке, "
         f"вы получите <b>{REFERRAL_REWARD_DAYS} дней</b> доступа.\n\n"
         f"Ваша ссылка:\n<code>{html.escape(link)}</code>"
+        "\n\nПосмотреть её повторно можно командой /referral."
     )
 
 
