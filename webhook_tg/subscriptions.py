@@ -136,6 +136,7 @@ def subscription_keyboard(bot_user: UserTg) -> dict:
 
 def access_status_text(bot_user: UserTg, at=None) -> str:
     at = at or timezone.now()
+    referral_section = ""
     if bot_user.access_unlimited:
         access_line = "Доступ: <b>бессрочный</b>"
     elif bot_user.has_active_access(at):
@@ -144,11 +145,16 @@ def access_status_text(bot_user: UserTg, at=None) -> str:
         access_line = f"Доступ до: <b>{expires:%d.%m.%Y %H:%M}</b> МСК\nОсталось: <b>{remaining} дн.</b>"
     else:
         access_line = "Доступ: <b>закончился</b>"
+        referral_section = (
+            "\n\nВаша реферальная ссылка:\n"
+            f"<code>{html.escape(referral_link(bot_user))}</code>"
+        )
     return (
         "⏳ <b>Доступ к WhoUpdate</b>\n\n"
         f"{access_line}\n"
         f"Бонус за приглашённых: <b>{bot_user.referral_bonus_days} дн.</b>\n\n"
         "Продлить доступ можно оплатой или приглашением друга."
+        f"{referral_section}"
     )
 
 

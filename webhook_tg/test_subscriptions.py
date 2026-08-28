@@ -9,6 +9,7 @@ from .models import TelegramOutbox, UserTg, WhoUpdatePaymentOrder
 from .payment_views import fulfill_order
 from .subscriptions import (
     OWNER_TELEGRAM_ID,
+    access_status_text,
     apply_rollout_policy,
     business_access_allowed,
     grant_referral_reward,
@@ -20,6 +21,24 @@ from .subscriptions import (
 
 
 class WhoUpdateAccessTests(TestCase):
+    def test_expired_status_contains_personal_referral_link(self):
+        user = UserTg.objects.create(
+            user_id=OWNER_TELEGRAM_ID,
+            chat_id=OWNER_TELEGRAM_ID,
+            access_unlimited=False,
+            access_expires_at=timezone.now() - timedelta(minutes=1),
+            referral_bonus_days=7,
+        )
+
+        message = access_status_text(user)
+
+        self.assertIn("Доступ: <b>закончился</b>", message)
+        self.assertIn("Бонус за приглашённых: <b>7 дн.</b>", message)
+        self.assertIn(
+            f"https://t.me/who_update_bot?start=ref_{user.referral_code}",
+            message,
+        )
+
     def test_rollout_does_not_limit_regular_user(self):
         user = UserTg.objects.create(user_id=100, chat_id=100)
         self.assertFalse(apply_rollout_policy(user))
