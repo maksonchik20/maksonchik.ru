@@ -146,7 +146,9 @@ def access_status_text(bot_user: UserTg, at=None) -> str:
     else:
         access_line = "Доступ: <b>закончился</b>"
         referral_section = (
-            "\n\nВаша реферальная ссылка:\n"
+            f"\n\nЗа каждого друга, который впервые полностью подключит WhoUpdate "
+            f"по вашей ссылке, вы получите <b>+{REFERRAL_REWARD_DAYS} дней доступа</b>.\n\n"
+            "Ваша реферальная ссылка:\n"
             f"<code>{html.escape(referral_link(bot_user))}</code>"
         )
     return (

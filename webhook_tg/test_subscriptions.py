@@ -34,6 +34,7 @@ class WhoUpdateAccessTests(TestCase):
 
         self.assertIn("Доступ: <b>закончился</b>", message)
         self.assertIn("Бонус за приглашённых: <b>7 дн.</b>", message)
+        self.assertIn("<b>+7 дней доступа</b>", message)
         self.assertIn(
             f"https://t.me/who_update_bot?start=ref_{user.referral_code}",
             message,
