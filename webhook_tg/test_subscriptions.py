@@ -12,6 +12,8 @@ from .subscriptions import (
     apply_rollout_policy,
     business_access_allowed,
     grant_referral_reward,
+    checkout_token,
+    plan_config_for_user,
     register_referral,
     start_trial_if_needed,
 )
@@ -78,7 +80,7 @@ class WhoUpdateAccessTests(TestCase):
         send_message.assert_called_once()
         message = send_message.call_args.args[1]
         keyboard = send_message.call_args.kwargs["reply_markup"]
-        self.assertIn("99 ₽", message)
+        self.assertIn("1 ₽", message)
         self.assertIn("https://t.me/who_update_bot?start=ref_", message)
         self.assertIn("/referral", message)
         self.assertEqual(len(keyboard["inline_keyboard"]), 3)
@@ -113,6 +115,28 @@ class WhoUpdatePaymentTests(TestCase):
             "amount": {"value": "99.00", "currency": "RUB"},
             "metadata": {"service": "who_update", "order_id": str(self.order.public_id)},
         }
+
+    def test_test_price_is_only_for_owner_month_plan(self):
+        regular_user = UserTg.objects.create(user_id=300, chat_id=300)
+        self.assertEqual(plan_config_for_user(self.user, "month")["amount"], Decimal("1.00"))
+        self.assertEqual(plan_config_for_user(regular_user, "month")["amount"], Decimal("99.00"))
+        self.assertEqual(
+            plan_config_for_user(self.user, "three_months")["amount"],
+            Decimal("199.00"),
+        )
+
+    @patch("webhook_tg.payment_views.create_payment")
+    def test_owner_month_checkout_creates_one_ruble_order(self, create_payment_mock):
+        create_payment_mock.return_value = {
+            "id": "test-one-ruble-payment",
+            "confirmation_url": "https://yookassa.test/confirmation",
+        }
+        response = self.client.get(f"/bot/subscribe/month/{checkout_token(self.user, 'month')}/")
+
+        self.assertEqual(response.status_code, 302)
+        order = WhoUpdatePaymentOrder.objects.get(yookassa_payment_id="test-one-ruble-payment")
+        self.assertEqual(order.amount, Decimal("1.00"))
+        self.assertEqual(create_payment_mock.call_args.kwargs["amount"], Decimal("1.00"))
 
     @patch("webhook_tg.payment_views.tg_send_message", return_value=True)
     @patch("webhook_tg.payment_views.get_payment")

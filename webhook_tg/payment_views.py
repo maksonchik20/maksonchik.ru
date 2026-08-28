@@ -16,7 +16,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import UserTg, WhoUpdatePaymentOrder
-from .subscriptions import CHECKOUT_SIGNING_SALT, PLAN_CONFIG
+from .subscriptions import CHECKOUT_SIGNING_SALT, plan_config_for_user
 from .telegram import tg_send_message
 from .yookassa import YooKassaError, create_payment, get_payment, is_webhook_ip
 
@@ -86,9 +86,6 @@ def fulfill_order(order, payment_id):
 
 @require_GET
 def subscribe(request, plan, token):
-    config = PLAN_CONFIG.get(plan)
-    if config is None:
-        raise Http404
     try:
         payload = signing.loads(token, salt=CHECKOUT_SIGNING_SALT, max_age=30 * 24 * 3600)
     except signing.BadSignature:
@@ -97,6 +94,9 @@ def subscribe(request, plan, token):
         return HttpResponseForbidden("Тариф не совпадает")
 
     bot_user = get_object_or_404(UserTg, user_id=payload.get("user_id"))
+    config = plan_config_for_user(bot_user, plan)
+    if config is None:
+        raise Http404
     if bot_user.access_unlimited:
         return HttpResponse("Для этого аккаунта пока включён бессрочный доступ.", status=409)
 

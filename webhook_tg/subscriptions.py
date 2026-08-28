@@ -23,10 +23,25 @@ PLAN_CONFIG = {
     "three_months": {"label": "3 месяца", "days": 90, "amount": Decimal("199.00")},
     "year": {"label": "1 год", "days": 365, "amount": Decimal("599.00")},
 }
+OWNER_TEST_MONTH_AMOUNT = Decimal("1.00")
 
 
 def is_subscription_rollout_user(bot_user: UserTg) -> bool:
     return int(bot_user.user_id) == OWNER_TELEGRAM_ID
+
+
+def plan_config_for_user(bot_user: UserTg, plan: str) -> dict | None:
+    config = PLAN_CONFIG.get(plan)
+    if config is None:
+        return None
+    config = dict(config)
+    if plan == "month" and is_subscription_rollout_user(bot_user):
+        config["amount"] = OWNER_TEST_MONTH_AMOUNT
+    return config
+
+
+def _rubles(amount: Decimal) -> str:
+    return f"{amount.quantize(Decimal('1'))} ₽"
 
 
 def apply_rollout_policy(bot_user: UserTg) -> bool:
@@ -106,11 +121,19 @@ def checkout_url(bot_user: UserTg, plan: str) -> str:
 
 
 def subscription_keyboard(bot_user: UserTg) -> dict:
+    month = plan_config_for_user(bot_user, "month")
+    three_months = plan_config_for_user(bot_user, "three_months")
+    year = plan_config_for_user(bot_user, "year")
     return {
         "inline_keyboard": [
-            [{"text": "1 месяц — 99 ₽", "url": checkout_url(bot_user, "month")}],
-            [{"text": "3 месяца — 199 ₽", "url": checkout_url(bot_user, "three_months")}],
-            [{"text": "1 год — 599 ₽", "url": checkout_url(bot_user, "year")}],
+            [{"text": f"1 месяц — {_rubles(month['amount'])}", "url": checkout_url(bot_user, "month")}],
+            [
+                {
+                    "text": f"3 месяца — {_rubles(three_months['amount'])}",
+                    "url": checkout_url(bot_user, "three_months"),
+                }
+            ],
+            [{"text": f"1 год — {_rubles(year['amount'])}", "url": checkout_url(bot_user, "year")}],
         ]
     }
 
@@ -146,11 +169,16 @@ def referral_text(bot_user: UserTg) -> str:
 
 def expired_access_text(bot_user: UserTg) -> str:
     link = referral_link(bot_user)
+    month = plan_config_for_user(bot_user, "month")
+    three_months = plan_config_for_user(bot_user, "three_months")
+    year = plan_config_for_user(bot_user, "year")
     return (
         "⛔️ <b>Доступ к WhoUpdate закончился</b>\n\n"
         "Продлить доступ можно одним из двух способов:\n\n"
         "💳 <b>Оплатить подписку</b>\n"
-        "1 месяц — 99 ₽, 3 месяца — 199 ₽, 1 год — 599 ₽.\n\n"
+        f"1 месяц — {_rubles(month['amount'])}, "
+        f"3 месяца — {_rubles(three_months['amount'])}, "
+        f"1 год — {_rubles(year['amount'])}.\n\n"
         f"👥 <b>Пригласить друга и получить {REFERRAL_REWARD_DAYS} дней</b>\n"
         "Бонус будет начислен, когда приглашённый пользователь полностью подключит бота.\n\n"
         f"Ваша реферальная ссылка:\n<code>{html.escape(link)}</code>\n\n"
