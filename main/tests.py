@@ -1,7 +1,8 @@
 from unittest.mock import patch
 
 from django.contrib import admin
-from django.test import TestCase
+from django.conf import settings
+from django.test import RequestFactory, TestCase
 
 from .models import Lead
 
@@ -154,3 +155,18 @@ class LeadFormTest(TestCase):
         response = self.client.get("/privacy/")
 
         self.assertContains(response, "ИНН 330640351621")
+
+
+class ReverseProxySecuritySettingsTest(TestCase):
+    def test_https_forwarding_and_csrf_origins_are_configured(self):
+        request = RequestFactory().get(
+            "/admin/",
+            HTTP_HOST="maksonchik.ru",
+            HTTP_X_FORWARDED_PROTO="https",
+        )
+
+        self.assertTrue(request.is_secure())
+        self.assertIn("https://maksonchik.ru", settings.CSRF_TRUSTED_ORIGINS)
+        self.assertIn("https://www.maksonchik.ru", settings.CSRF_TRUSTED_ORIGINS)
+        self.assertTrue(settings.CSRF_COOKIE_SECURE)
+        self.assertTrue(settings.SESSION_COOKIE_SECURE)

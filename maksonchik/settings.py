@@ -9,7 +9,21 @@ SECRET_KEY = 'django-insecure-+gt-2@0c5ty*pbm-c@ohq&f^r*%19e&4yv&f7qucq^#_i)8=ru
 
 DEBUG = False
 
-ALLOWED_HOSTS = ["maksonchik.ru", "www.maksonchik.ru", "213.226.124.52", "localhost", "127.0.0.1"]
+ALLOWED_HOSTS = [
+    "maksonchik.ru",
+    "www.maksonchik.ru",
+    "158.160.136.81",
+    "213.226.124.52",
+    "localhost",
+    "127.0.0.1",
+]
+
+# HTTPS завершается на reverse proxy. Заголовок выставляется только SSL-vhost,
+# поэтому Django может безопасно определить схему исходного запроса.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CSRF_TRUSTED_ORIGINS = ["https://maksonchik.ru", "https://www.maksonchik.ru"]
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
 
 WHO_UPDATE_SITE_URL = "https://maksonchik.ru"
 try:
