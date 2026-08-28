@@ -76,6 +76,12 @@ class WhoUpdateAccessTests(TestCase):
         user.refresh_from_db()
         self.assertIsNotNone(user.access_expired_notified_at)
         send_message.assert_called_once()
+        message = send_message.call_args.args[1]
+        keyboard = send_message.call_args.kwargs["reply_markup"]
+        self.assertIn("99 ₽", message)
+        self.assertIn("https://t.me/who_update_bot?start=ref_", message)
+        self.assertIn("/referral", message)
+        self.assertEqual(len(keyboard["inline_keyboard"]), 3)
 
 
 @override_settings(

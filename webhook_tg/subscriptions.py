@@ -144,6 +144,46 @@ def referral_text(bot_user: UserTg) -> str:
     )
 
 
+def expired_access_text(bot_user: UserTg) -> str:
+    link = referral_link(bot_user)
+    return (
+        "⛔️ <b>Доступ к WhoUpdate закончился</b>\n\n"
+        "Продлить доступ можно одним из двух способов:\n\n"
+        "💳 <b>Оплатить подписку</b>\n"
+        "1 месяц — 99 ₽, 3 месяца — 199 ₽, 1 год — 599 ₽.\n\n"
+        f"👥 <b>Пригласить друга и получить {REFERRAL_REWARD_DAYS} дней</b>\n"
+        "Бонус будет начислен, когда приглашённый пользователь полностью подключит бота.\n\n"
+        f"Ваша реферальная ссылка:\n<code>{html.escape(link)}</code>\n\n"
+        "Ссылка также доступна по команде /referral."
+    )
+
+
+def notify_access_expired(bot_user: UserTg, at=None) -> bool:
+    at = at or timezone.now()
+    if bot_user.access_unlimited or bot_user.has_active_access(at):
+        return False
+
+    claimed = UserTg.objects.filter(
+        pk=bot_user.pk,
+        access_expired_notified_at__isnull=True,
+    ).update(access_expired_notified_at=at)
+    if not claimed:
+        return False
+
+    from .telegram import tg_send_message
+
+    sent = tg_send_message(
+        bot_user.chat_id,
+        expired_access_text(bot_user),
+        reply_markup=subscription_keyboard(bot_user),
+    )
+    if not sent:
+        UserTg.objects.filter(pk=bot_user.pk, access_expired_notified_at=at).update(
+            access_expired_notified_at=None
+        )
+    return sent
+
+
 def business_owner_for_message(msg: dict) -> UserTg | None:
     connection_id = msg.get("business_connection_id")
     if not connection_id:
@@ -156,15 +196,5 @@ def business_access_allowed(msg: dict) -> bool:
     if bot_user is None or bot_user.has_active_access():
         return True
 
-    if bot_user.access_expired_notified_at is None:
-        bot_user.access_expired_notified_at = timezone.now()
-        bot_user.save(update_fields=["access_expired_notified_at"])
-        from .telegram import tg_send_message
-
-        tg_send_message(
-            bot_user.chat_id,
-            "⛔️ <b>Пробный период WhoUpdate закончился</b>\n\n"
-            "Продлите доступ оплатой или пригласите друга по своей реферальной ссылке.",
-            reply_markup=subscription_keyboard(bot_user),
-        )
+    notify_access_expired(bot_user)
     return False

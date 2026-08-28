@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from webhook_tg.config import CONNECTION_REMINDER_TEXT, START_PHOTO_ID
 from webhook_tg.models import UserTg
+from webhook_tg.subscriptions import notify_access_expired
 from webhook_tg.telegram import dispatch_telegram_request
 
 
@@ -38,6 +39,17 @@ class Command(BaseCommand):
                 return
 
             now = timezone.now()
+            expired_users = list(
+                UserTg.objects.filter(
+                    access_unlimited=False,
+                    access_expires_at__isnull=False,
+                    access_expires_at__lte=now,
+                    access_expired_notified_at__isnull=True,
+                )
+                .order_by("access_expires_at", "id")[:limit]
+            )
+            expired_sent = sum(notify_access_expired(user, at=now) for user in expired_users)
+
             users = list(
                 UserTg.objects.filter(
                     business_is_connected=False,
@@ -91,5 +103,6 @@ class Command(BaseCommand):
                     failed += 1
 
             self.stdout.write(
-                f"due={len(users)} sent={sent} permanent={permanent} failed={failed}"
+                f"due={len(users)} sent={sent} permanent={permanent} failed={failed} "
+                f"expired_due={len(expired_users)} expired_sent={expired_sent}"
             )

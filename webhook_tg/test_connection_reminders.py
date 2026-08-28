@@ -9,6 +9,23 @@ from .models import UserTg
 
 
 class ConnectionReminderCommandTests(TestCase):
+    @patch("webhook_tg.telegram.tg_send_message")
+    def test_sends_expired_access_notification_once(self, send_message):
+        send_message.return_value = True
+        user = UserTg.objects.create(
+            user_id=104,
+            chat_id=104,
+            access_unlimited=False,
+            access_expires_at=timezone.now() - timedelta(minutes=1),
+        )
+
+        call_command("send_connection_reminders")
+        call_command("send_connection_reminders")
+
+        user.refresh_from_db()
+        self.assertIsNotNone(user.access_expired_notified_at)
+        send_message.assert_called_once()
+
     @patch("webhook_tg.management.commands.send_connection_reminders.dispatch_telegram_request")
     def test_sends_due_reminder_once(self, dispatch_mock):
         dispatch_mock.return_value = (True, "")
