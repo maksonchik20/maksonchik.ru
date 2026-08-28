@@ -8,6 +8,51 @@ from .models import Lead
 
 class LeadFormTest(TestCase):
     @patch("main.views.tg_send_message", return_value=True)
+    def test_contact_only_submission_is_accepted(self, send_message):
+        response = self.client.post("/request/", {"contact": "@anna", "consent": "on"})
+        self.assertEqual(response.status_code, 200)
+        lead = Lead.objects.get()
+        self.assertEqual(response.json()["lead_id"], lead.pk)
+        self.assertEqual(lead.name, "")
+        self.assertEqual(lead.message, "")
+        self.assertIn("Не указано", send_message.call_args.args[1])
+
+    def test_honeypot_does_not_create_a_conversion(self):
+        response = self.client.post("/request/", {"company": "spam"})
+        self.assertEqual(response.json(), {"ok": True})
+        self.assertFalse(Lead.objects.exists())
+
+    def test_contact_and_consent_are_independently_required(self):
+        for data in ({"contact": "@anna"}, {"contact": "  ", "consent": "on"}):
+            with self.subTest(data=data):
+                self.assertEqual(self.client.post("/request/", data).status_code, 400)
+        self.assertFalse(Lead.objects.exists())
+
+    def test_optional_fields_still_have_length_limits(self):
+        for extra in ({"name": "a" * 121}, {"message": "a" * 3001}):
+            data = {"contact": "@anna", "consent": "on", **extra}
+            self.assertEqual(self.client.post("/request/", data).status_code, 400)
+        self.assertFalse(Lead.objects.exists())
+
+    def test_home_has_estimate_cta_and_one_short_form(self):
+        response = self.client.get("/")
+        self.assertContains(response, 'href="#request" data-lead-open')
+        self.assertContains(response, "Узнать стоимость и сроки")
+        self.assertContains(response, "от 15&nbsp;000&nbsp;₽")
+        self.assertContains(response, 'id="lead-form"', count=1)
+        self.assertContains(response, 'id="lead-dialog"')
+        self.assertContains(response, 'placeholder="Имя">')
+        self.assertContains(response, 'main/lead-form.js')
+
+    def test_home_places_lead_form_before_telegram_contact_section(self):
+        response = self.client.get("/")
+        html = response.content.decode()
+        self.assertLess(html.index('id="request"'), html.index('id="contact"'))
+        self.assertLess(html.index('id="lead-form"'), html.index("Обсудим ваш проект?"))
+        self.assertContains(response, 'id="lead-form"', count=1)
+        self.assertContains(response, 'id="contact"', count=1)
+
+    @patch("main.views.tg_send_message", return_value=True)
     def test_submission_creates_lead_and_notifies_owner(self, send_message):
         response = self.client.post(
             "/request/",
@@ -74,6 +119,36 @@ class LeadFormTest(TestCase):
 
         self.assertContains(response, "Любая автоматизация")
         self.assertContains(response, "интеграции с сервисами")
+
+    def test_coffee_shop_landing_contains_preorder_offer_and_lead_form(self):
+        response = self.client.get("/services/site-for-coffee-shop/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Разработка сайта и Telegram-бота для вашей кофейни")
+        self.assertContains(response, "Разработка для владельцев кофеен")
+        self.assertContains(response, "Как работает предзаказ")
+        self.assertContains(response, "Повторить прошлый заказ")
+        self.assertContains(response, "каждый шестой кофе в подарок")
+        self.assertContains(response, "Можно начать с небольшого MVP")
+        self.assertContains(response, 'id="lead-form"')
+        self.assertContains(response, 'href="/privacy/"')
+
+    def test_flower_shop_landing_is_a_development_offer(self):
+        response = self.client.get("/services/site-for-flower-shop/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Разработка сайта для вашего цветочного магазина")
+        self.assertContains(response, "Разработка для владельцев цветочных магазинов")
+        self.assertContains(response, 'id="lead-form"')
+
+    def test_coffee_shop_landing_is_in_sitemap(self):
+        response = self.client.get("/sitemap.xml")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "https://maksonchik.ru/services/site-for-coffee-shop/",
+        )
 
     def test_privacy_page_contains_operator_inn(self):
         response = self.client.get("/privacy/")

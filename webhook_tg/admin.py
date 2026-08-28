@@ -2,29 +2,172 @@ from urllib.parse import quote
 
 from django.contrib import admin
 from django.db.models import Q
-from django.urls import reverse
+from django.http import HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, StreamingHttpResponse
+from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
 from .chat_display import format_message_html
-from .models import Message, UserTg, AdminChatFilter, TelegramOutbox, BotOutgoingMessage
+from .models import (
+    Message,
+    UserTg,
+    AdminChatFilter,
+    TelegramOutbox,
+    TelegramIncomingUpdate,
+    BotOutgoingMessage,
+    MutedPeer,
+    WhoUpdatePaymentOrder,
+)
+from .telegram import (
+    get_telegram_file_path,
+    guess_telegram_file_mime,
+    open_telegram_file_stream,
+)
 
 HIDDEN_USERNAMES = {"@tamataeva86", }
+MESSAGE_LIST_DEFER = ("payload",)
+MESSAGE_LIST_ONLY = (
+    "id",
+    "chat_id",
+    "username_from",
+    "first_name",
+    "text",
+    "caption",
+    "file_id",
+    "file_type",
+    "created_at",
+    "business_connection_id",
+    "message_id",
+)
+
+
+@admin.register(TelegramIncomingUpdate)
+class TelegramIncomingUpdateAdmin(admin.ModelAdmin):
+    list_display = ("update_id", "queue", "status", "attempts", "created_at", "processed_at")
+    list_filter = ("queue", "status")
+    search_fields = ("update_id", "last_error")
+    readonly_fields = (
+        "update_id",
+        "payload",
+        "queue",
+        "status",
+        "attempts",
+        "next_attempt_at",
+        "started_at",
+        "processed_at",
+        "last_error",
+        "created_at",
+    )
+    ordering = ("-created_at",)
+    list_per_page = 50
+
+
+class BusinessConnectionIdFilter(admin.SimpleListFilter):
+    """Текстовый фильтр: без DISTINCT по таблице, страница без фильтра открывается быстро."""
+
+    title = "business_connection_id"
+    parameter_name = "business_connection_id"
+    template = "admin/webhook_tg/business_connection_id_filter.html"
+
+    def lookups(self, request, model_admin):
+        # Нужен непустой lookups, чтобы фильтр попал в сайдбар.
+        return (("__input__", "input"),)
+
+    def queryset(self, request, queryset):
+        value = (self.value() or "").strip()
+        if not value:
+            return queryset
+        return queryset.filter(business_connection_id__icontains=value)
+
+    def choices(self, changelist):
+        params = changelist.params.copy()
+        params.pop(self.parameter_name, None)
+        yield {
+            "selected": not self.value(),
+            "query_string": changelist.get_query_string(remove=[self.parameter_name]),
+            "display": "Все",
+            "query_parts": list(params.items()),
+        }
 
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
     change_list_template = "admin/webhook_tg/message/change_list.html"
-    list_display = ("chat_link", "username_from", "first_name", "text_preview", "file_type", "created_at")
-    list_filter = ("username_from", "business_connection_id", "chat_id")
-    search_fields = ("username_from", "first_name", "text", "message_id", "business_connection_id")
+    list_display = (
+        "chat_link",
+        "username_from",
+        "first_name",
+        "text_preview",
+        "file_id_preview",
+        "file_type",
+        "created_at",
+    )
+    list_filter = (BusinessConnectionIdFilter,)
+    search_fields = (
+        "username_from",
+        "first_name",
+        "text",
+        "message_id",
+        "business_connection_id",
+        "file_id",
+    )
     ordering = ("-created_at",)
     list_per_page = 50
+    show_full_result_count = False  # не делать COUNT(*) на всю таблицу
 
     readonly_fields = ("created_at",)
 
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "preview-file/",
+                self.admin_site.admin_view(self.preview_file_view),
+                name="webhook_tg_message_preview_file",
+            ),
+        ]
+        return custom + urls
+
+    def preview_file_view(self, request):
+        """Проксирует файл из Telegram API в браузер без сохранения на диск."""
+        file_id = (request.GET.get("file_id") or "").strip()
+        file_type = (request.GET.get("file_type") or "").strip()
+        if not file_id:
+            return HttpResponseBadRequest("file_id required")
+
+        # Только file_id, которые есть в доступных пользователю сообщениях.
+        allowed = self.get_queryset(request).filter(file_id=file_id).exists()
+        if not allowed:
+            return HttpResponseForbidden("file_id not allowed")
+
+        try:
+            file_path = get_telegram_file_path(file_id)
+            upstream = open_telegram_file_stream(file_path)
+        except Exception as exc:
+            return HttpResponse(f"Telegram file error: {exc}", status=502)
+
+        content_type = guess_telegram_file_mime(file_path, file_type)
+
+        def stream():
+            try:
+                for chunk in upstream.iter_content(64 * 1024):
+                    if chunk:
+                        yield chunk
+            finally:
+                upstream.close()
+
+        response = StreamingHttpResponse(stream(), content_type=content_type)
+        response["Cache-Control"] = "no-store"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+
     def get_queryset(self, request):
         qs = super().get_queryset(request)
+        # список/чат не нужны гигантские payload
+        if request.resolver_match and request.resolver_match.url_name == "webhook_tg_message_changelist":
+            qs = qs.only(*MESSAGE_LIST_ONLY)
+        else:
+            qs = qs.defer(*MESSAGE_LIST_DEFER)
         qs = qs.exclude(username_from__in=HIDDEN_USERNAMES)
         if request.user.is_superuser:
             filtered = qs
@@ -58,16 +201,18 @@ class MessageAdmin(admin.ModelAdmin):
         if chat_id:
             messages = list(self.get_queryset(request).order_by("-created_at"))
             extra_context["wu_chat_count"] = len(messages)
+            extra_context["wu_chat_shown"] = len(messages)
+            extra_context["wu_chat_limited"] = False
 
             title_parts = [f"chat_id {chat_id}"]
             if conn_id:
                 title_parts.append(f"({conn_id[:12]}…)")
             if messages:
-                last = messages[-1]
-                if last.username_from:
-                    title_parts.insert(0, f"@{last.username_from}")
-                elif last.first_name:
-                    title_parts.insert(0, last.first_name)
+                head = messages[0]
+                if head.username_from:
+                    title_parts.insert(0, f"@{head.username_from}")
+                elif head.first_name:
+                    title_parts.insert(0, head.first_name)
             extra_context["wu_chat_title"] = " · ".join(title_parts)
 
             if messages:
@@ -96,6 +241,10 @@ class MessageAdmin(admin.ModelAdmin):
             return text[:77] + "…"
         return text or "—"
 
+    @admin.display(description="file_id")
+    def file_id_preview(self, obj):
+        return obj.file_id or "—"
+
 
 @admin.register(AdminChatFilter)
 class AdminChatFilterAdmin(admin.ModelAdmin):
@@ -112,7 +261,51 @@ class AdminChatFilterAdmin(admin.ModelAdmin):
         return format_html('<a href="{}">Открыть чат</a>', url)
 
 
-admin.site.register(UserTg)
+@admin.register(UserTg)
+class UserTgAdmin(admin.ModelAdmin):
+    list_display = (
+        "username",
+        "user_id",
+        "business_is_connected",
+        "last_start_at",
+        "business_connected_at",
+        "business_disconnected_at",
+        "connection_reminder_at",
+        "connection_reminder_sent_at",
+        "access_unlimited",
+        "access_expires_at",
+        "referral_bonus_days",
+        "referred_by",
+    )
+    list_filter = ("business_is_connected", "access_unlimited")
+    search_fields = ("username", "first_name", "user_id", "chat_id", "business_connection_id", "referral_code")
+    ordering = ("-last_start_at",)
+
+
+@admin.register(WhoUpdatePaymentOrder)
+class WhoUpdatePaymentOrderAdmin(admin.ModelAdmin):
+    list_display = ("public_id", "user", "plan", "amount", "status", "paid_at", "access_expires_at_after")
+    list_filter = ("status", "plan")
+    search_fields = ("public_id", "yookassa_payment_id", "user__username", "user__user_id")
+    readonly_fields = ("public_id", "created_at", "paid_at", "access_expires_at_after")
+    ordering = ("-created_at",)
+
+
+@admin.register(MutedPeer)
+class MutedPeerAdmin(admin.ModelAdmin):
+    list_display = (
+        "owner_user_id",
+        "owner_chat_id",
+        "muted_username",
+        "muted_user_id",
+        "expires_at",
+        "notify_in_bot",
+        "warning_sent",
+        "created_at",
+    )
+    list_filter = ("notify_in_bot", "warning_sent")
+    search_fields = ("muted_username", "owner_user_id", "muted_user_id")
+    ordering = ("-created_at",)
 
 
 @admin.register(TelegramOutbox)
@@ -151,7 +344,15 @@ class BotOutgoingMessageAdmin(admin.ModelAdmin):
 
     @admin.display(description="Получатель")
     def recipient(self, obj):
-        user = UserTg.objects.filter(chat_id=obj.chat_id).first()
+        # кэш на queryset, чтобы не бить UserTg на каждую строку
+        cache = getattr(self, "_recipient_cache", None)
+        if cache is None:
+            cache = {
+                u.chat_id: u
+                for u in UserTg.objects.only("chat_id", "username", "first_name")
+            }
+            self._recipient_cache = cache
+        user = cache.get(obj.chat_id)
         if user:
             if user.username:
                 return f"@{user.username}"

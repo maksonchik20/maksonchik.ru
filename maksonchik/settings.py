@@ -11,6 +11,18 @@ DEBUG = False
 
 ALLOWED_HOSTS = ["maksonchik.ru", "www.maksonchik.ru", "213.226.124.52", "localhost", "127.0.0.1"]
 
+WHO_UPDATE_SITE_URL = "https://maksonchik.ru"
+try:
+    from env import (
+        YOOKASSA_SHOP_ID,
+        YOOKASSA_SECRET_KEY,
+        WHO_UPDATE_PAYMENT_WEBHOOK_TOKEN,
+    )
+except ImportError:
+    YOOKASSA_SHOP_ID = ""
+    YOOKASSA_SECRET_KEY = ""
+    WHO_UPDATE_PAYMENT_WEBHOOK_TOKEN = ""
+
 
 INSTALLED_APPS = [
     'axes',
@@ -100,6 +112,10 @@ TIME_ZONE = 'Europe/Moscow'
 USE_I18N = True
 
 USE_TZ = True
+
+# Telegram webhook быстро сохраняет update в БД; обработка идёт отдельными workers.
+TELEGRAM_WEBHOOK_SYNC_PROCESSING = False
+TELEGRAM_WEBHOOK_SECRET_REQUIRED = True
 
 
 STATIC_URL = '/static/'

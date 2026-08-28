@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -496,6 +497,26 @@
       letter-spacing: -.04em;
     }
     .lead-copy p { margin: 0; color: var(--muted); max-width: 42ch; }
+    .lead-copy .lead-alternative { margin-top: 18px; font-size: .9rem; }
+    .lead-alternative a { color: var(--cyan); }
+    .lead-optional { border-top: 1px solid var(--line); padding-top: 12px; }
+    .lead-optional summary { cursor: pointer; color: var(--muted); font-size: .88rem; }
+    .lead-optional .lead-field { margin-top: 14px; }
+    .lead-dialog {
+      width: min(560px, calc(100% - 24px)); max-height: calc(100dvh - 24px);
+      padding: 0; border: 1px solid rgba(255,255,255,.16); border-radius: 24px;
+      background: #090b15; color: var(--ink); overflow-y: auto; overscroll-behavior: contain;
+    }
+    .lead-dialog::backdrop { background: rgba(2,2,6,.8); backdrop-filter: blur(8px); }
+    .lead-dialog[open] { animation: lead-dialog-in .22s ease-out; }
+    .lead-dialog .lead-shell { display: grid; grid-template-columns: 1fr; gap: 22px; padding: 40px 24px 24px; border: 0; box-shadow: none; }
+    .lead-dialog .lead-copy h2 { font-size: 1.8rem; margin-bottom: 12px; }
+    .lead-dialog .eyebrow { display: none; }
+    .lead-dialog .lead-form-wrap { min-height: 0; }
+    .lead-dialog-close { position: absolute; z-index: 3; top: 6px; right: 8px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 28px; cursor: pointer; }
+    .lead-dialog-close:hover, .lead-dialog-close:focus-visible { color: var(--ink); background: rgba(255,255,255,.08); }
+    body.lead-modal-open { overflow: hidden; }
+    @keyframes lead-dialog-in { from { opacity: 0; transform: translateY(16px) scale(.98); } to { opacity: 1; transform: none; } }
     .lead-form { display: grid; gap: 14px; transition: opacity .35s ease, transform .35s ease; }
     .lead-form.is-done { opacity: 0; transform: translateY(12px) scale(.98); pointer-events: none; }
     .lead-field { display: grid; gap: 7px; }
@@ -536,6 +557,7 @@
       transition: opacity .45s ease .15s, transform .55s cubic-bezier(.2,.8,.2,1) .15s;
     }
     .lead-success.is-visible { opacity: 1; transform: scale(1); pointer-events: auto; }
+    .lead-success:focus { outline: none; }
     .success-orbit { width: 92px; height: 92px; margin: 0 auto 18px; position: relative; }
     .success-orbit::before, .success-orbit::after {
       content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1px solid rgba(0,245,255,.32);
@@ -628,24 +650,28 @@
     <div class="lead-shell">
       <div class="lead-copy">
         <div class="eyebrow"><span class="eyebrow-dot"></span>Есть задача?</div>
-        <h2>Расскажите, что хотите сделать</h2>
-        <p>Отвечу лично, задам пару уточняющих вопросов и предложу понятный план со сроками и бюджетом.</p>
+        <h2 id="lead-title">Узнайте стоимость и сроки</h2>
+        <p id="lead-description">Оставьте контакт — я лично уточню задачу и предложу стоимость и сроки разработки.</p>
+        <p class="lead-alternative">Удобнее в мессенджере? <a href="{{ site.telegram }}" target="_blank" rel="noopener">Написать в Telegram</a></p>
       </div>
       <div class="lead-form-wrap">
-        <form class="lead-form" id="lead-form" action="{% url 'submit_lead' %}" method="post" novalidate>
+        <form class="lead-form" id="lead-form" action="{% url 'submit_lead' %}" method="post" data-metrika-id="{{ site.metrika_id }}" novalidate>
           {% csrf_token %}
-          <div class="lead-field">
-            <label for="lead-name">Как вас зовут</label>
-            <input id="lead-name" name="name" type="text" maxlength="120" autocomplete="name" placeholder="Имя" required>
-          </div>
           <div class="lead-field">
             <label for="lead-contact">Как с вами связаться</label>
             <input id="lead-contact" name="contact" type="text" maxlength="255" autocomplete="email" placeholder="Телефон, email или @telegram" required>
           </div>
-          <div class="lead-field">
-            <label for="lead-message">Коротко о задаче <span style="font-weight:400;color:var(--muted)">(необязательно)</span></label>
-            <textarea id="lead-message" name="message" maxlength="3000" rows="4" placeholder="Например: нужен сайт для студии красоты с онлайн-записью"></textarea>
-          </div>
+          <details class="lead-optional">
+            <summary>Добавить имя и описание задачи — необязательно</summary>
+            <div class="lead-field">
+              <label for="lead-name">Как вас зовут (необязательно)</label>
+              <input id="lead-name" name="name" type="text" maxlength="120" autocomplete="name" placeholder="Имя">
+            </div>
+            <div class="lead-field">
+              <label for="lead-message">Коротко о задаче (необязательно)</label>
+              <textarea id="lead-message" name="message" maxlength="3000" rows="3" placeholder="Например: нужен сайт для студии красоты с онлайн-записью"></textarea>
+            </div>
+          </details>
           <div class="lead-honeypot" aria-hidden="true">
             <label for="lead-company">Компания</label><input id="lead-company" name="company" type="text" tabindex="-1" autocomplete="off">
           </div>
@@ -660,10 +686,10 @@
           <input type="hidden" name="utm_campaign">
           <input type="hidden" name="utm_content">
           <input type="hidden" name="utm_term">
-          <button class="btn btn-primary btn-arrow lead-submit" type="submit">Отправить заявку</button>
+          <button class="btn btn-primary btn-arrow lead-submit" type="submit">Получить оценку проекта</button>
           <p class="lead-error" role="alert" aria-live="polite"></p>
         </form>
-        <div class="lead-success" id="lead-success" role="status" aria-live="polite">
+        <div class="lead-success" id="lead-success" role="status" aria-live="polite" aria-hidden="true" tabindex="-1">
           <div>
             <div class="success-orbit"><div class="success-check">✓</div></div>
             <h3>Заявка отправлена</h3>
@@ -673,6 +699,12 @@
       </div>
     </div>
   </section>
+
+  {% block after_lead %}{% endblock %}
+
+  <dialog class="lead-dialog" id="lead-dialog" aria-labelledby="lead-title" aria-describedby="lead-description">
+    <button class="lead-dialog-close" type="button" aria-label="Закрыть форму">×</button>
+  </dialog>
 
   <footer>
     <div class="wrap footer-row">
@@ -809,46 +841,23 @@
   </script>
   <script>
   (function () {
-    var form = document.getElementById("lead-form");
-    var success = document.getElementById("lead-success");
-    if (!form || !success) return;
+    document.addEventListener("click", function (event) {
+      var link = event.target.closest("a[href]");
+      if (!link || typeof ym !== "function") return;
 
-    var params = new URLSearchParams(window.location.search);
-    form.elements.page_url.value = window.location.href;
-    form.elements.page_title.value = document.title;
-    ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"].forEach(function (key) {
-      form.elements[key].value = params.get(key) || "";
-    });
+      var href = (link.getAttribute("href") || "").toLowerCase();
+      var goal = null;
+      if (href.indexOf("t.me/maksonchik200") !== -1) {
+        goal = "telegram_maksonchik200";
+      } else if (href.indexOf("t.me/who_update_bot") !== -1) {
+        goal = "telegram_who_update_bot";
+      }
 
-    form.addEventListener("submit", function (event) {
-      event.preventDefault();
-      var error = form.querySelector(".lead-error");
-      var button = form.querySelector("button[type=submit]");
-      error.textContent = "";
-      if (!form.reportValidity()) return;
-      button.disabled = true;
-      button.textContent = "Отправляю…";
-
-      fetch(form.action, {
-        method: "POST",
-        body: new FormData(form),
-        headers: { "X-Requested-With": "XMLHttpRequest" },
-        credentials: "same-origin"
-      }).then(function (response) {
-        return response.json().then(function (data) { return { ok: response.ok, data: data }; });
-      }).then(function (result) {
-        if (!result.ok || !result.data.ok) throw new Error(result.data.error || "Не удалось отправить заявку.");
-        form.classList.add("is-done");
-        success.classList.add("is-visible");
-        if (typeof ym === "function") ym({{ site.metrika_id }}, "reachGoal", "lead_sent");
-      }).catch(function (failure) {
-        error.textContent = failure.message || "Не удалось отправить. Напишите мне в Telegram.";
-        button.disabled = false;
-        button.textContent = "Отправить заявку";
-      });
+      if (goal) ym({{ site.metrika_id }}, "reachGoal", goal);
     });
   })();
   </script>
+  <script src="{% static 'main/lead-form.js' %}?v=20260826-1" defer></script>
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>

@@ -1,12 +1,15 @@
-from django.test import TestCase
+from django.test import TestCase, override_settings
+from django.utils import timezone
 from unittest.mock import patch
+from datetime import timedelta
 import json
 
 from .config import START_PHOTO_ID, START_TEXT
-from .models import Message, FileType
+from .models import Message, FileType, TelegramIncomingUpdate, UserTg
 from .outbox import process_outbox
+from .incoming import claim_next_update, process_claimed_update
 
-TELEGRAM_REQUESTS_PATCH = "webhook_tg.telegram.requests.post"
+TELEGRAM_REQUESTS_PATCH = "webhook_tg.telegram.TELEGRAM_SESSION.post"
 
 
 def make_business_message_payload(
@@ -122,6 +125,10 @@ def get_post_call_args(call):
     return url, body
 
 
+@override_settings(
+    TELEGRAM_WEBHOOK_SYNC_PROCESSING=True,
+    TELEGRAM_WEBHOOK_SECRET_REQUIRED=False,
+)
 class NoTelegramApiTestCase(TestCase):
     """Базовый класс: мокаем все вызовы к Telegram API (requests.post в webhook_tg.telegram)."""
 
@@ -131,6 +138,7 @@ class NoTelegramApiTestCase(TestCase):
         self.mock_post = self._requests_patcher.start()
         # Для get_business_connection: вызывается .json() у ответа
         self.mock_post.return_value.json.return_value = {
+            "ok": True,
             "result": {
                 "user_chat_id": 0,
                 "user": {"id": 0},
@@ -176,6 +184,42 @@ class WebhookStartTests(NoTelegramApiTestCase):
         self.assertEqual(body.get("parse_mode"), "HTML", "В json должен быть parse_mode HTML")
         self.assertTrue(body.get("disable_web_page_preview"), "В json должен быть disable_web_page_preview True")
 
+        user = UserTg.objects.get(user_id=700001)
+        self.assertFalse(user.business_is_connected)
+        self.assertIsNotNone(user.last_start_at)
+        self.assertIsNotNone(user.connection_reminder_at)
+        self.assertAlmostEqual(
+            (user.connection_reminder_at - user.last_start_at).total_seconds(),
+            timedelta(minutes=30).total_seconds(),
+            delta=1,
+        )
+
+    def test_start_does_not_schedule_reminder_for_connected_user(self):
+        UserTg.objects.create(
+            user_id=700002,
+            chat_id=600002,
+            username="connected",
+            business_is_connected=True,
+            business_connected_at=timezone.now(),
+        )
+        payload = make_start_payload(
+            chat_id=600002,
+            user_id=700002,
+            username="connected",
+            update_id=101,
+        )
+
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        user = UserTg.objects.get(user_id=700002)
+        self.assertTrue(user.business_is_connected)
+        self.assertIsNone(user.connection_reminder_at)
+
     def test_start_does_not_send_on_non_start_message(self):
         """Если текст не /start, отправка сообщения не вызывается."""
         payload = make_start_payload()
@@ -189,6 +233,180 @@ class WebhookStartTests(NoTelegramApiTestCase):
             self.mock_post.called,
             "requests.post не должен вызываться при сообщении не /start",
         )
+
+
+@override_settings(
+    TELEGRAM_WEBHOOK_SYNC_PROCESSING=False,
+    TELEGRAM_WEBHOOK_SECRET_REQUIRED=False,
+)
+class IncomingWebhookQueueTests(TestCase):
+    def test_start_is_enqueued_in_priority_queue_without_api_call(self):
+        payload = make_start_payload(update_id=880001)
+        with patch(TELEGRAM_REQUESTS_PATCH) as mock_post:
+            response = self.client.post(
+                "/webhook_tg/",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        item = TelegramIncomingUpdate.objects.get(update_id=880001)
+        self.assertEqual(item.queue, TelegramIncomingUpdate.Queue.PRIORITY)
+        self.assertEqual(item.status, TelegramIncomingUpdate.Status.PENDING)
+        mock_post.assert_not_called()
+
+    def test_business_message_is_enqueued_in_business_queue(self):
+        payload = make_business_message_payload(message_id=880002)
+        payload["update_id"] = 880002
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        item = TelegramIncomingUpdate.objects.get(update_id=880002)
+        self.assertEqual(item.queue, TelegramIncomingUpdate.Queue.BUSINESS)
+
+    def test_duplicate_update_is_stored_once(self):
+        payload = make_start_payload(update_id=880003)
+        for _ in range(2):
+            response = self.client.post(
+                "/webhook_tg/",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(TelegramIncomingUpdate.objects.filter(update_id=880003).count(), 1)
+
+    def test_priority_worker_sends_start_photo_and_marks_update_done(self):
+        payload = make_start_payload(update_id=880005)
+        self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        item = claim_next_update(TelegramIncomingUpdate.Queue.PRIORITY)
+        self.assertIsNotNone(item)
+
+        with patch(TELEGRAM_REQUESTS_PATCH) as mock_post:
+            mock_post.return_value.json.return_value = {"ok": True, "result": {}}
+            self.assertTrue(process_claimed_update(item))
+
+        item.refresh_from_db()
+        self.assertEqual(item.status, TelegramIncomingUpdate.Status.DONE)
+        send_photo_calls = [
+            call
+            for call in mock_post.call_args_list
+            if "sendPhoto" in str(get_post_call_args(call)[0])
+        ]
+        self.assertEqual(len(send_photo_calls), 1)
+
+
+@override_settings(
+    TELEGRAM_WEBHOOK_SYNC_PROCESSING=False,
+    TELEGRAM_WEBHOOK_SECRET_REQUIRED=True,
+)
+class WebhookSecretTests(TestCase):
+    def test_missing_secret_is_rejected(self):
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(make_start_payload(update_id=880004)),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+
+class BusinessConnectionActivatedTests(NoTelegramApiTestCase):
+    def test_enabled_connection_sends_activated_message(self):
+        from webhook_tg.config import BOT_ACTIVATED_TEXT, OWNER_CHAT_ID
+
+        self.mock_post.return_value.json.return_value = {"ok": True, "result": True}
+        payload = {
+            "update_id": 94001,
+            "business_connection": {
+                "id": "conn_act_1",
+                "user": {
+                    "id": 1394340082,
+                    "is_bot": False,
+                    "first_name": "Max",
+                    "username": "maksonchik200",
+                },
+                "user_chat_id": 1394340082,
+                "date": 1700000000,
+                "is_enabled": True,
+            },
+        }
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        send_calls = [
+            c for c in self.mock_post.call_args_list
+            if get_post_call_args(c)[0] and "sendMessage" in str(get_post_call_args(c)[0])
+        ]
+        activated = [
+            get_post_call_args(c)[1]
+            for c in send_calls
+            if get_post_call_args(c)[1].get("text") == BOT_ACTIVATED_TEXT
+        ]
+        self.assertEqual(len(activated), 1)
+        self.assertEqual(int(activated[0].get("chat_id")), 1394340082)
+
+        owner_notifications = [
+            get_post_call_args(c)[1]
+            for c in send_calls
+            if "WhoUpdate полностью подключён" in get_post_call_args(c)[1].get("text", "")
+        ]
+        self.assertEqual(len(owner_notifications), 1)
+        self.assertEqual(str(owner_notifications[0].get("chat_id")), str(OWNER_CHAT_ID))
+        owner_text = owner_notifications[0]["text"]
+        self.assertIn("@maksonchik200", owner_text)
+        self.assertIn("Telegram ID: <code>1394340082</code>", owner_text)
+        self.assertIn("Business connection ID: <code>conn_act_1</code>", owner_text)
+        stored_user = UserTg.objects.get(user_id=1394340082)
+        self.assertTrue(stored_user.business_is_connected)
+        self.assertEqual(stored_user.business_connection_id, "conn_act_1")
+        self.assertIsNotNone(stored_user.business_connected_at)
+        self.assertIsNone(stored_user.connection_reminder_at)
+
+    def test_disabled_connection_does_not_notify_owner_about_activation(self):
+        self.mock_post.return_value.json.return_value = {"ok": True, "result": True}
+        payload = {
+            "update_id": 94002,
+            "business_connection": {
+                "id": "conn_disabled_1",
+                "user": {
+                    "id": 812345,
+                    "first_name": "Test",
+                    "username": "test_owner",
+                },
+                "user_chat_id": 812345,
+                "is_enabled": False,
+            },
+        }
+
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        stored_user = UserTg.objects.get(user_id=812345)
+        self.assertFalse(stored_user.business_is_connected)
+        self.assertEqual(stored_user.business_connection_id, "conn_disabled_1")
+        self.assertIsNotNone(stored_user.business_disconnected_at)
+        self.assertIsNone(stored_user.connection_reminder_at)
+        texts = [
+            get_post_call_args(c)[1].get("text", "")
+            for c in self.mock_post.call_args_list
+            if get_post_call_args(c)[0] and "sendMessage" in str(get_post_call_args(c)[0])
+        ]
+        self.assertFalse(any("WhoUpdate полностью подключён" in text for text in texts))
 
 
 class WebhookBusinessMessageTests(NoTelegramApiTestCase):
@@ -344,7 +562,32 @@ class WebhookBusinessMessageTests(NoTelegramApiTestCase):
         msg = Message.objects.get(chat_id=300001, message_id=message_id)
         self.assertEqual(msg.file_id, "doc_file_456")
         self.assertEqual(msg.file_type, FileType.DOCUMENT)
-        self.assertEqual(msg.text, "текст")
+
+    def test_business_message_with_video_sticker_saves_file_id(self):
+        """video-стикер сохраняет file_id и file_type STICKER."""
+        message_id = 100015
+        payload = make_business_message_payload(
+            message_id=message_id,
+            username_from="sticker_user",
+            text="placeholder",
+        )
+        payload["business_message"].pop("text")
+        payload["business_message"]["sticker"] = {
+            "width": 512,
+            "height": 512,
+            "is_video": True,
+            "file_id": "sticker_video_file_789",
+            "file_unique_id": "uniq_sticker",
+        }
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        msg = Message.objects.get(chat_id=300001, message_id=message_id)
+        self.assertEqual(msg.file_id, "sticker_video_file_789")
+        self.assertEqual(msg.file_type, FileType.STICKER)
 
 
 class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
@@ -393,9 +636,6 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
         msg = Message.objects.get(chat_id=chat_id, message_id=message_id)
         self.assertEqual(msg.text, new_text)
         self.assertEqual(msg.username_from, username_from)
-
-        self.mock_post.return_value.json.return_value = {"ok": True, "result": {"message_id": 1}}
-        process_outbox()
 
         send_message_calls = [
             c for c in self.mock_post.call_args_list
@@ -520,6 +760,52 @@ class WebhookDeletedBusinessMessageTests(NoTelegramApiTestCase):
         self.assertIn(first_name, notification_text)
         self.assertIn(username, notification_text)
 
+    def test_deleted_own_message_by_owner_skips_notification(self):
+        """Удаление своего сообщения владельцем business — уведомление не шлём."""
+        message_id = 600011
+        chat_id = 900011
+        owner_id = 1394340082
+        owner_username = "maksonchik200"
+        owner_user_chat_id = 1394340082
+        self.mock_post.return_value.json.return_value = {
+            "result": {
+                "user_chat_id": owner_user_chat_id,
+                "user": {"id": owner_id, "username": owner_username},
+            }
+        }
+
+        Message.objects.create(
+            message_id=message_id,
+            username_from=owner_username,
+            text="my own message",
+            business_connection_id="test_conn_del_own",
+            chat_id=chat_id,
+        )
+
+        payload = make_deleted_business_messages_payload(
+            message_ids=[message_id],
+            chat_id=chat_id,
+            first_name="Partner",
+            username="partner_user",
+            business_connection_id="test_conn_del_own",
+        )
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        send_message_calls = [
+            c for c in self.mock_post.call_args_list
+            if get_post_call_args(c)[0] and "sendMessage" in str(get_post_call_args(c)[0])
+        ]
+        self.assertEqual(
+            len(send_message_calls),
+            0,
+            "При удалении своего сообщения владельцу не шлём уведомление",
+        )
+
     def test_deleted_business_messages_unknown_id_shows_not_saved_placeholder(self):
         """Если удалённое сообщение не было в БД, в уведомлении — «текст не сохранён»."""
         message_id = 600020
@@ -553,17 +839,31 @@ class WebhookDeletedBusinessMessageTests(NoTelegramApiTestCase):
         self.assertIn("удалил(а)", notification_text)
         self.assertIn("текст не сохранён", notification_text)
 
-    def test_deleted_more_than_20_sends_20_individual_messages_then_summary(self):
-        """Если удалено больше 20 сообщений: 20 отдельных sendMessage и один с текстом «больше 20»."""
+    def test_bulk_delete_sends_one_txt_archive_with_all_messages(self):
+        """Удаление более 10 сообщений отправляет один TXT со всем событием."""
         chat_id = 900030
         user_chat_id_notification = 950003
         self.mock_post.return_value.json.return_value = {
+            "ok": True,
             "result": {
                 "user_chat_id": user_chat_id_notification,
                 "user": {"id": chat_id},
             }
         }
         message_ids = list(range(600100, 600125))
+        Message.objects.bulk_create(
+            [
+                Message(
+                    message_id=message_id,
+                    username_from="history_user",
+                    first_name="History User",
+                    text=f"history text {message_id}",
+                    business_connection_id="test_conn_del_001",
+                    chat_id=chat_id,
+                )
+                for message_id in message_ids
+            ]
+        )
         payload = make_deleted_business_messages_payload(
             message_ids=message_ids,
             chat_id=chat_id,
@@ -574,21 +874,55 @@ class WebhookDeletedBusinessMessageTests(NoTelegramApiTestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
+        send_document_calls = [
+            c for c in self.mock_post.call_args_list
+            if get_post_call_args(c)[0] and "sendDocument" in str(get_post_call_args(c)[0])
+        ]
+        self.assertEqual(len(send_document_calls), 1)
+        call = send_document_calls[0]
+        self.assertEqual(call.kwargs["data"]["chat_id"], user_chat_id_notification)
+        filename, content, content_type = call.kwargs["files"]["document"]
+        self.assertTrue(filename.endswith(".txt"))
+        self.assertEqual(content_type, "text/plain; charset=utf-8")
+        archive = content.decode("utf-8-sig")
+        self.assertIn("Сообщений в событии удаления: 25", archive)
+        for message_id in message_ids:
+            self.assertIn(f"history text {message_id}", archive)
+
+    def test_delete_up_to_ten_sends_notifications_without_file(self):
+        """При удалении 10 сообщений бот не формирует TXT-файл."""
+        chat_id = 900031
+        recipient = 950004
+        self.mock_post.return_value.json.return_value = {
+            "ok": True,
+            "result": {
+                "user_chat_id": recipient,
+                "user": {"id": chat_id},
+            },
+        }
+        message_ids = list(range(600200, 600210))
+        payload = make_deleted_business_messages_payload(
+            message_ids=message_ids,
+            chat_id=chat_id,
+        )
+
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        send_document_calls = [
+            c for c in self.mock_post.call_args_list
+            if get_post_call_args(c)[0] and "sendDocument" in str(get_post_call_args(c)[0])
+        ]
         send_message_calls = [
             c for c in self.mock_post.call_args_list
             if get_post_call_args(c)[0] and "sendMessage" in str(get_post_call_args(c)[0])
         ]
-        self.assertEqual(
-            len(send_message_calls), 21,
-            "Должно быть 20 сообщений об удалённых + 1 сводное",
-        )
-        for i in range(20):
-            _, body = get_post_call_args(send_message_calls[i])
-            self.assertEqual(body.get("chat_id"), user_chat_id_notification)
-            self.assertIn("удалил(а) сообщение", body.get("text", ""))
-        _, summary_body = get_post_call_args(send_message_calls[20])
-        self.assertIn("больше 20", summary_body.get("text", ""))
-        self.assertIn("25", summary_body.get("text", ""))
+        self.assertEqual(send_document_calls, [])
+        self.assertEqual(len(send_message_calls), 10)
 
 
 class WebhookIdempotencyTests(NoTelegramApiTestCase):
@@ -609,6 +943,7 @@ class WebhookIdempotencyTests(NoTelegramApiTestCase):
         )
         self.assertEqual(response1.status_code, 200)
         self.assertEqual(Message.objects.filter(chat_id=300001, message_id=100050).count(), 1)
+        calls_after_first_delivery = self.mock_post.call_count
 
         payload["business_message"]["text"] = "second attempt"
         response2 = self.client.post(
@@ -620,7 +955,7 @@ class WebhookIdempotencyTests(NoTelegramApiTestCase):
 
         msg = Message.objects.get(chat_id=300001, message_id=100050)
         self.assertEqual(msg.text, "first")
-        self.assertFalse(self.mock_post.called)
+        self.assertEqual(self.mock_post.call_count, calls_after_first_delivery)
 
 
 class WebhookCompositeMessageKeyTests(NoTelegramApiTestCase):
@@ -661,3 +996,301 @@ class WebhookCompositeMessageKeyTests(NoTelegramApiTestCase):
         msg_b = Message.objects.get(chat_id=300202, message_id=shared_message_id)
         self.assertEqual(msg_a.text, "chat A")
         self.assertEqual(msg_b.text, "chat B")
+
+
+class WebhookViewOnceRescueTests(NoTelegramApiTestCase):
+    """Reply на has_protected_content фото/видео → копия владельцу."""
+
+    def test_owner_reply_to_protected_photo_sends_copy(self):
+        owner_id = 800100
+        owner_chat_id = 800100
+        partner_id = 700100
+        chat_id = 300100
+        source_message_id = 500100
+        self.mock_post.return_value.json.return_value = {
+            "ok": True,
+            "result": {
+                "user_chat_id": owner_chat_id,
+                "user": {"id": owner_id, "username": "owner_user"},
+            },
+        }
+
+        payload = make_business_message_payload(
+            message_id=500101,
+            username_from="owner_user",
+            text=".",
+            business_connection_id="conn_view_once_1",
+        )
+        payload["update_id"] = 92001
+        payload["business_message"]["from"]["id"] = owner_id
+        payload["business_message"]["chat"]["id"] = chat_id
+        payload["business_message"]["reply_to_message"] = {
+            "message_id": source_message_id,
+            "from": {
+                "id": partner_id,
+                "is_bot": False,
+                "first_name": "Partner",
+                "username": "partner_user",
+            },
+            "chat": {
+                "id": chat_id,
+                "type": "private",
+            },
+            "date": 1000000,
+            "has_protected_content": True,
+            "photo": [
+                {"file_id": "photo_small_vo", "width": 90, "height": 90},
+                {"file_id": "photo_large_vo", "width": 1280, "height": 1280},
+            ],
+            "caption": "secret shot",
+        }
+
+        with patch(
+            "webhook_tg.views.download_telegram_file_bytes",
+            return_value=(b"jpeg-bytes", "photos/file_42.jpg"),
+        ) as mock_dl, patch(
+            "webhook_tg.views.send_photo_bytes",
+            return_value=True,
+        ) as mock_send:
+            response = self.client.post(
+                "/webhook_tg/",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 200)
+            mock_dl.assert_called_once_with("photo_large_vo", timeout=90)
+            mock_send.assert_called_once()
+            args, kwargs = mock_send.call_args
+            self.assertEqual(args[0], owner_chat_id)
+            self.assertEqual(args[1], b"jpeg-bytes")
+            self.assertIn("одноразовое", kwargs.get("caption", ""))
+            self.assertIn("secret shot", kwargs.get("caption", ""))
+
+        saved = Message.objects.get(chat_id=chat_id, message_id=source_message_id)
+        self.assertEqual(saved.file_id, "photo_large_vo")
+        self.assertEqual(saved.file_type, FileType.PHOTO)
+
+    def test_non_owner_reply_does_not_rescue(self):
+        owner_id = 800101
+        partner_id = 700101
+        chat_id = 300101
+        self.mock_post.return_value.json.return_value = {
+            "ok": True,
+            "result": {
+                "user_chat_id": owner_id,
+                "user": {"id": owner_id},
+            },
+        }
+
+        payload = make_business_message_payload(
+            message_id=500201,
+            username_from="partner_user",
+            text="ok",
+            business_connection_id="conn_view_once_2",
+        )
+        payload["update_id"] = 92002
+        payload["business_message"]["from"]["id"] = partner_id
+        payload["business_message"]["chat"]["id"] = chat_id
+        payload["business_message"]["reply_to_message"] = {
+            "message_id": 500200,
+            "from": {"id": partner_id, "first_name": "Partner"},
+            "chat": {"id": chat_id, "type": "private"},
+            "date": 1000000,
+            "has_protected_content": True,
+            "photo": [{"file_id": "should_not_send", "width": 100, "height": 100}],
+        }
+
+        self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        send_photo_calls = [
+            c for c in self.mock_post.call_args_list
+            if get_post_call_args(c)[0] and "sendPhoto" in str(get_post_call_args(c)[0])
+        ]
+        self.assertEqual(len(send_photo_calls), 0)
+
+    def test_unprotected_media_reply_ignored(self):
+        owner_id = 800102
+        chat_id = 300102
+        self.mock_post.return_value.json.return_value = {
+            "ok": True,
+            "result": {
+                "user_chat_id": owner_id,
+                "user": {"id": owner_id},
+            },
+        }
+
+        payload = make_business_message_payload(
+            message_id=500301,
+            text=".",
+            business_connection_id="conn_view_once_3",
+        )
+        payload["update_id"] = 92003
+        payload["business_message"]["from"]["id"] = owner_id
+        payload["business_message"]["chat"]["id"] = chat_id
+        payload["business_message"]["reply_to_message"] = {
+            "message_id": 500300,
+            "from": {"id": 700102, "first_name": "Partner"},
+            "chat": {"id": chat_id, "type": "private"},
+            "date": 1000000,
+            "has_protected_content": False,
+            "photo": [{"file_id": "normal_photo", "width": 100, "height": 100}],
+        }
+
+        self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        send_photo_calls = [
+            c for c in self.mock_post.call_args_list
+            if get_post_call_args(c)[0] and "sendPhoto" in str(get_post_call_args(c)[0])
+        ]
+        self.assertEqual(len(send_photo_calls), 0)
+
+
+class MuteCommandTests(NoTelegramApiTestCase):
+    def test_mute_wizard_and_unmute(self):
+        chat_id = 1394340082
+        user_id = 1394340082
+        self.mock_post.return_value.json.return_value = {"ok": True, "result": True}
+
+        payload = make_start_payload(chat_id=chat_id, user_id=user_id, update_id=93001)
+        payload["message"]["text"] = "/mute @SpamUser"
+        self.client.post("/webhook_tg/", data=json.dumps(payload), content_type="application/json")
+
+        from webhook_tg.models import MuteSetup, MutedPeer
+        setup = MuteSetup.objects.get(owner_user_id=user_id, muted_username="spamuser")
+        self.assertFalse(MutedPeer.objects.filter(muted_username="spamuser").exists())
+
+        # шаг 1: срок
+        cb1 = {
+            "update_id": 93002,
+            "callback_query": {
+                "id": "cq1",
+                "from": {"id": user_id, "username": "owner"},
+                "message": {
+                    "message_id": 10,
+                    "chat": {"id": chat_id, "type": "private"},
+                    "text": "mute",
+                },
+                "data": f"ms:{setup.id}:d:600",
+            },
+        }
+        self.client.post("/webhook_tg/", data=json.dumps(cb1), content_type="application/json")
+        setup.refresh_from_db()
+        self.assertEqual(setup.duration_seconds, 600)
+
+        # шаг 2: уведомления
+        cb2 = {
+            "update_id": 93003,
+            "callback_query": {
+                "id": "cq2",
+                "from": {"id": user_id, "username": "owner"},
+                "message": {
+                    "message_id": 10,
+                    "chat": {"id": chat_id, "type": "private"},
+                    "text": "mute",
+                },
+                "data": f"ms:{setup.id}:n:1",
+            },
+        }
+        self.client.post("/webhook_tg/", data=json.dumps(cb2), content_type="application/json")
+        mute = MutedPeer.objects.get(owner_user_id=user_id, muted_username="spamuser")
+        self.assertTrue(mute.notify_in_bot)
+        self.assertIsNotNone(mute.expires_at)
+        self.assertFalse(MuteSetup.objects.filter(id=setup.id).exists())
+
+        payload["update_id"] = 93004
+        payload["message"]["text"] = "/unmute @SpamUser"
+        self.client.post("/webhook_tg/", data=json.dumps(payload), content_type="application/json")
+        self.assertFalse(
+            MutedPeer.objects.filter(owner_user_id=user_id, muted_username="spamuser").exists()
+        )
+
+    def test_muted_first_message_warns_then_deletes(self):
+        owner_id = 1394340082
+        from webhook_tg.models import MutedPeer
+        mute = MutedPeer.objects.create(
+            owner_user_id=owner_id,
+            owner_chat_id=owner_id,
+            muted_username="spammer",
+            notify_in_bot=True,
+            warning_sent=False,
+        )
+        self.mock_post.return_value.json.return_value = {
+            "ok": True,
+            "result": {
+                "user_chat_id": owner_id,
+                "user": {"id": owner_id, "username": "maksonchik200"},
+            },
+        }
+
+        payload = make_business_message_payload(
+            message_id=777001,
+            username_from="spammer",
+            text="spam hello",
+            business_connection_id="conn_mute_1",
+        )
+        payload["update_id"] = 93010
+        payload["business_message"]["from"]["id"] = 555001
+        payload["business_message"]["chat"]["id"] = 555001
+
+        self.client.post("/webhook_tg/", data=json.dumps(payload), content_type="application/json")
+
+        # business warning + deleteBusinessMessages (+ возможно notify sendMessage)
+        methods = []
+        for c in self.mock_post.call_args_list:
+            url, body = get_post_call_args(c)
+            url_s = str(url or "")
+            if "deleteBusinessMessages" in url_s:
+                methods.append(("delete", body))
+            elif "sendMessage" in url_s and body.get("business_connection_id") == "conn_mute_1":
+                methods.append(("warn", body))
+
+        self.assertTrue(any(m[0] == "warn" for m in methods))
+        self.assertTrue(any(m[0] == "delete" for m in methods))
+        mute.refresh_from_db()
+        self.assertTrue(mute.warning_sent)
+        self.assertFalse(Message.objects.filter(message_id=777001).exists())
+
+    def test_expired_mute_is_cleared_on_message(self):
+        owner_id = 1394340082
+        from django.utils import timezone
+        from datetime import timedelta
+        from webhook_tg.models import MutedPeer
+        MutedPeer.objects.create(
+            owner_user_id=owner_id,
+            owner_chat_id=owner_id,
+            muted_username="spammer",
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+        self.mock_post.return_value.json.return_value = {
+            "ok": True,
+            "result": {
+                "user_chat_id": owner_id,
+                "user": {"id": owner_id, "username": "maksonchik200"},
+            },
+        }
+        payload = make_business_message_payload(
+            message_id=777002,
+            username_from="spammer",
+            text="after expiry",
+            business_connection_id="conn_mute_2",
+        )
+        payload["update_id"] = 93011
+        payload["business_message"]["from"]["id"] = 555002
+        payload["business_message"]["chat"]["id"] = 555002
+        self.client.post("/webhook_tg/", data=json.dumps(payload), content_type="application/json")
+
+        delete_calls = [
+            c for c in self.mock_post.call_args_list
+            if get_post_call_args(c)[0] and "deleteBusinessMessages" in str(get_post_call_args(c)[0])
+        ]
+        self.assertEqual(len(delete_calls), 0)
+        self.assertFalse(MutedPeer.objects.filter(muted_username="spammer").exists())
+        self.assertTrue(Message.objects.filter(message_id=777002).exists())

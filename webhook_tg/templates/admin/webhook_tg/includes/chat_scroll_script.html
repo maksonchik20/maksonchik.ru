@@ -6,6 +6,124 @@
             container.scrollTop = 0;
         }
     }
-    document.addEventListener('DOMContentLoaded', scrollMessagesToTop);
+
+    function mediaTagFor(fileType, objectUrl, contentType) {
+        var ft = (fileType || '').toUpperCase();
+        var ct = (contentType || '').toLowerCase();
+        if (ft === 'VIDEO' || ct.indexOf('video/') === 0) {
+            return '<video controls playsinline src="' + objectUrl + '"></video>';
+        }
+        if (ft === 'AUDIO' || ct.indexOf('audio/') === 0) {
+            return '<audio controls src="' + objectUrl + '"></audio>';
+        }
+        if (
+            ft === 'PHOTO' ||
+            ft === 'STICKER' ||
+            ft === 'ANIMATION' ||
+            ct.indexOf('image/') === 0
+        ) {
+            return '<img alt="preview" src="' + objectUrl + '">';
+        }
+        return (
+            '<a href="' + objectUrl + '" target="_blank" rel="noopener">открыть файл</a>'
+        );
+    }
+
+    function onShowFileClick(event) {
+        var btn = event.target && event.target.closest
+            ? event.target.closest('.wu-show-file')
+            : null;
+        if (!btn) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        var preview = btn.parentNode
+            ? btn.parentNode.querySelector('.wu-file-preview')
+            : null;
+        if (!preview) {
+            preview = btn.nextElementSibling;
+        }
+        if (!preview || !preview.classList || !preview.classList.contains('wu-file-preview')) {
+            console.error('wu-show-file: preview container not found');
+            return;
+        }
+
+        if (preview.dataset.loaded === '1') {
+            if (preview.hasAttribute('hidden')) {
+                preview.removeAttribute('hidden');
+                btn.textContent = 'скрыть';
+            } else {
+                preview.setAttribute('hidden', 'hidden');
+                btn.textContent = 'показать';
+            }
+            return;
+        }
+
+        var fileId = btn.getAttribute('data-file-id') || '';
+        var fileType = btn.getAttribute('data-file-type') || '';
+        var previewUrl = btn.getAttribute('data-preview-url') || '';
+        if (!fileId || !previewUrl) {
+            console.error('wu-show-file: missing file_id or preview url', fileId, previewUrl);
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'загрузка…';
+        preview.removeAttribute('hidden');
+        preview.innerHTML = '<span class="wu-file-error">Загрузка из Telegram…</span>';
+
+        var url =
+            previewUrl +
+            '?file_id=' +
+            encodeURIComponent(fileId) +
+            '&file_type=' +
+            encodeURIComponent(fileType);
+
+        fetch(url, { credentials: 'same-origin' })
+            .then(function (response) {
+                if (!response.ok) {
+                    return response.text().then(function (text) {
+                        throw new Error(text || ('HTTP ' + response.status));
+                    });
+                }
+                var contentType = response.headers.get('Content-Type') || '';
+                return response.blob().then(function (blob) {
+                    return { blob: blob, contentType: contentType };
+                });
+            })
+            .then(function (result) {
+                var objectUrl = URL.createObjectURL(result.blob);
+                preview.innerHTML = mediaTagFor(fileType, objectUrl, result.contentType);
+                preview.dataset.loaded = '1';
+                btn.disabled = false;
+                btn.textContent = 'скрыть';
+            })
+            .catch(function (err) {
+                preview.innerHTML =
+                    '<span class="wu-file-error">' +
+                    (err && err.message ? err.message : 'Ошибка загрузки') +
+                    '</span>';
+                btn.disabled = false;
+                btn.textContent = 'показать';
+            });
+    }
+
+    function initWuChat() {
+        scrollMessagesToTop();
+        // делегирование на document — работает даже если DOMContentLoaded уже прошёл
+        if (!window.__wuShowFileBound) {
+            document.addEventListener('click', onShowFileClick, true);
+            window.__wuShowFileBound = true;
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initWuChat);
+    } else {
+        initWuChat();
+    }
 })();
 </script>

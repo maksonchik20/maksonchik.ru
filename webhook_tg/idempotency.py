@@ -22,3 +22,9 @@ def acquire_webhook_update(update_id) -> bool:
         return True
     except IntegrityError:
         return False
+
+
+def mark_webhook_update_processed(update_id) -> None:
+    if update_id is None:
+        return
+    WebhookUpdate.objects.get_or_create(update_id=update_id)

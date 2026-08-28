@@ -2,6 +2,7 @@ venv
 db.sqlite3
 __pycache__
 static
+!main/static/
 gunicorn.ctl
 env.py
 sender.py

@@ -1,0 +1,26 @@
+{% load i18n %}
+<details data-filter-title="{{ title }}" open>
+  <summary>{% blocktranslate with filter_title=title %}По {{ filter_title }}{% endblocktranslate %}</summary>
+  <ul>
+    {% with choice=choices.0 %}
+    <li>
+      <form method="get">
+        {% for key, value in choice.query_parts %}
+          <input type="hidden" name="{{ key }}" value="{{ value }}">
+        {% endfor %}
+        <input
+          type="text"
+          name="{{ spec.parameter_name }}"
+          value="{{ spec.value|default_if_none:'' }}"
+          placeholder="business_connection_id"
+          style="width: 100%; box-sizing: border-box; margin-bottom: 6px;"
+        >
+        <input type="submit" value="Найти">
+        {% if spec.value %}
+          <a href="{{ choice.query_string }}">Сбросить</a>
+        {% endif %}
+      </form>
+    </li>
+    {% endwith %}
+  </ul>
+</details>

@@ -6,7 +6,7 @@ from .blog_articles import BLOG_ARTICLE_LIST, BLOG_INDEX
 from .landing_pages import SERVICE_LANDING_SLUGS
 
 HOST = "https://maksonchik.ru"
-SITE_LASTMOD = "2026-08-18"
+SITE_LASTMOD = "2026-08-23"
 
 # Пути с 301 — в sitemap не включаем (см. main/urls.py).
 SITEMAP_EXCLUDE_PATHS = frozenset(

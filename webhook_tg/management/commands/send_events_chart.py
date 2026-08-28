@@ -31,7 +31,13 @@ class Command(BaseCommand):
             tg_send_message(chat_id, "Не удалось построить график. Попробуйте позже.")
             return
 
-        if send_photo_bytes(chat_id, chart_bytes, caption=caption):
+        if send_photo_bytes(
+            chat_id,
+            chart_bytes,
+            caption=caption,
+            filename="chart.png",
+            content_type="image/png",
+        ):
             self.stdout.write(f"chart sent to {chat_id}")
             return
 

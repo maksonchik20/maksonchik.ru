@@ -1,0 +1,12 @@
+[Unit]
+Description=Run WhoUpdate connection reminders every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Persistent=true
+Unit=who-update-connection-reminders.service
+
+[Install]
+WantedBy=timers.target

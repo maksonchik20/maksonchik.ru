@@ -1,0 +1,12 @@
+[Unit]
+Description=WhoUpdate connection reminder sender
+After=network.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/maksonchik/app
+Environment=DJANGO_SETTINGS_MODULE=maksonchik.settings
+Environment=MPLCONFIGDIR=/srv/maksonchik/.cache/matplotlib
+ExecStart=/srv/maksonchik/venv/bin/python manage.py send_connection_reminders --limit 50

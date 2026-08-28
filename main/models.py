@@ -2,7 +2,7 @@ from django.db import models
 
 
 class Lead(models.Model):
-    name = models.CharField("Имя", max_length=120)
+    name = models.CharField("Имя", max_length=120, blank=True)
     contact = models.CharField("Телефон, email или Telegram", max_length=255)
     message = models.TextField("Задача", blank=True)
     page_url = models.URLField("Страница отправки", max_length=1000, blank=True)
@@ -22,4 +22,4 @@ class Lead(models.Model):
         ordering = ("-created_at",)
 
     def __str__(self):
-        return f"{self.name} — {self.contact}"
+        return f"{self.name or 'Без имени'} — {self.contact}"

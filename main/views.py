@@ -78,8 +78,8 @@ def submit_lead(request: HttpRequest):
     # Honeypot: для посетителя поле скрыто, простые боты обычно его заполняют.
     if request.POST.get("company", "").strip():
         return JsonResponse({"ok": True})
-    if not name or len(name) > 120:
-        return JsonResponse({"ok": False, "error": "Укажите ваше имя."}, status=400)
+    if len(name) > 120:
+        return JsonResponse({"ok": False, "error": "Имя должно быть короче 120 символов."}, status=400)
     if not contact or len(contact) > 255:
         return JsonResponse({"ok": False, "error": "Укажите телефон, email или Telegram."}, status=400)
     if len(message) > 3000:
@@ -102,7 +102,7 @@ def submit_lead(request: HttpRequest):
 
     telegram_text = (
         "<b>Новая заявка с maksonchik.ru</b>\n\n"
-        f"<b>Имя:</b> {escape(name)}\n"
+        f"<b>Имя:</b> {escape(name or 'Не указано')}\n"
         f"<b>Контакт:</b> {escape(contact)}\n"
         f"<b>Задача:</b> {escape(message or 'Не указана')}\n"
         f"<b>Страница:</b> {escape(lead.page_url or 'Не определена')}\n"

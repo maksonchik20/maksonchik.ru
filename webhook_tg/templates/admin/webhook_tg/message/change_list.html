@@ -47,14 +47,38 @@
             color: #6c757d;
             margin-bottom: 12px;
         }
+        .wu-show-file {
+            margin-top: 8px;
+            padding: 4px 10px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            border: 1px solid #adb5bd;
+            border-radius: 6px;
+            background: #fff;
+            color: #0d6efd;
+        }
+        .wu-show-file:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+        .wu-file-preview {
+            margin-top: 8px;
+        }
+        .wu-file-preview img,
+        .wu-file-preview video {
+            max-width: 100%;
+            max-height: 420px;
+            border-radius: 8px;
+            display: block;
+        }
+        .wu-file-preview audio {
+            width: 100%;
+        }
+        .wu-file-preview .wu-file-error {
+            color: #b02a37;
+            font-size: 0.85rem;
+        }
     </style>
-{% endblock %}
-
-{% block extrajs %}
-    {{ block.super }}
-    {% if wu_chat_mode %}
-        {% include "admin/webhook_tg/includes/chat_scroll_script.html" %}
-    {% endif %}
 {% endblock %}
 
 {% block content %}
@@ -62,9 +86,16 @@
         <div class="wu-bot-chat">
             <a class="wu-bot-chat-back" href="{% url 'admin:webhook_tg_message_changelist' %}">← Все сообщения</a>
             <h2>Чат {{ wu_chat_title }}</h2>
-            <div class="wu-chat-count">{{ wu_chat_count }} сообщений</div>
+            <div class="wu-chat-count">
+                {% if wu_chat_limited %}
+                    показаны последние {{ wu_chat_shown }} из {{ wu_chat_count }}
+                {% else %}
+                    {{ wu_chat_count }} сообщений
+                {% endif %}
+            </div>
             <div id="wu-chat-messages">{{ wu_chat_html }}</div>
         </div>
+        {% include "admin/webhook_tg/includes/chat_scroll_script.html" %}
     {% endif %}
     {{ block.super }}
 {% endblock %}
