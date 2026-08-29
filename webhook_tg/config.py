@@ -29,6 +29,8 @@ START_REPLY_MARKUP = {
                 "text": "🎬 Демонстрация работы бота",
                 "callback_data": DEMO_CALLBACK_DATA,
             },
+        ],
+        [
             {
                 "text": "🟢 Подключить",
                 "url": PROFILE_SETTINGS_URL,

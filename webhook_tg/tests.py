@@ -192,10 +192,13 @@ class WebhookStartTests(NoTelegramApiTestCase):
         self.assertEqual(body.get("parse_mode"), "HTML", "В json должен быть parse_mode HTML")
         self.assertTrue(body.get("disable_web_page_preview"), "В json должен быть disable_web_page_preview True")
         self.assertEqual(body.get("reply_markup"), START_REPLY_MARKUP)
-        start_buttons = body["reply_markup"]["inline_keyboard"][0]
-        self.assertEqual(len(start_buttons), 2)
-        self.assertEqual(start_buttons[1]["text"], "🟢 Подключить")
-        self.assertEqual(start_buttons[1]["url"], PROFILE_SETTINGS_URL)
+        start_keyboard = body["reply_markup"]["inline_keyboard"]
+        self.assertEqual(len(start_keyboard), 2)
+        self.assertEqual(len(start_keyboard[0]), 1)
+        self.assertEqual(len(start_keyboard[1]), 1)
+        self.assertEqual(start_keyboard[0][0]["text"], "🎬 Демонстрация работы бота")
+        self.assertEqual(start_keyboard[1][0]["text"], "🟢 Подключить")
+        self.assertEqual(start_keyboard[1][0]["url"], PROFILE_SETTINGS_URL)
         self.assertEqual(PROFILE_SETTINGS_URL, "tg://settings/edit")
 
         user = UserTg.objects.get(user_id=700001)
