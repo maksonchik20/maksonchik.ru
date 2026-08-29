@@ -13,7 +13,7 @@ from .config import (
     START_REPLY_MARKUP,
     START_TEXT,
 )
-from .models import Message, FileType, TelegramIncomingUpdate, UserTg
+from .models import BackgroundTask, Message, FileType, TelegramIncomingUpdate, UserTg
 from .outbox import process_outbox
 from .incoming import claim_next_update, process_claimed_update
 
@@ -204,12 +204,25 @@ class WebhookStartTests(NoTelegramApiTestCase):
         user = UserTg.objects.get(user_id=700001)
         self.assertFalse(user.business_is_connected)
         self.assertIsNotNone(user.last_start_at)
-        self.assertIsNotNone(user.connection_reminder_at)
+        reminders = list(
+            BackgroundTask.objects.filter(
+                task_type="send_connection_reminder",
+                payload__user_pk=user.pk,
+                status=BackgroundTask.Status.PENDING,
+            ).order_by("run_at")
+        )
+        self.assertEqual(len(reminders), 2)
         self.assertAlmostEqual(
-            (user.connection_reminder_at - user.last_start_at).total_seconds(),
+            (reminders[0].run_at - user.last_start_at).total_seconds(),
             timedelta(minutes=30).total_seconds(),
             delta=1,
         )
+        self.assertAlmostEqual(
+            (reminders[1].run_at - user.last_start_at).total_seconds(),
+            timedelta(days=1).total_seconds(),
+            delta=1,
+        )
+        self.assertTrue(all(task.idempotency_key for task in reminders))
 
         telegram_calls = [
             call
@@ -280,6 +293,13 @@ class WebhookStartTests(NoTelegramApiTestCase):
         user = UserTg.objects.get(user_id=700002)
         self.assertTrue(user.business_is_connected)
         self.assertIsNone(user.connection_reminder_at)
+        self.assertFalse(
+            BackgroundTask.objects.filter(
+                task_type="send_connection_reminder",
+                payload__user_pk=user.pk,
+                status=BackgroundTask.Status.PENDING,
+            ).exists()
+        )
 
     def test_referral_start_notification_contains_inviter_username(self):
         inviter = UserTg.objects.create(

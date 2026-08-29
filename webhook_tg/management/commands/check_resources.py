@@ -1,18 +1,13 @@
 import json
 import os
-import shutil
 import time
 import datetime
 
-import psutil
 from django.core.management.base import BaseCommand
 
+from webhook_tg.resource_metrics import collect_resource_snapshot, human_gb, resource_report_text
 from webhook_tg.telegram import tg_send_message
 from env import OWNER_CHAT_ID
-
-
-def human_gb(bytes_: int) -> str:
-    return f"{bytes_ / 1024 / 1024 / 1024:.1f} GB"
 
 
 class Command(BaseCommand):
@@ -54,23 +49,16 @@ class Command(BaseCommand):
         cooldown = opts["cooldown"]
         state_file = opts["state_file"]
 
-        # Метрики
-        du = shutil.disk_usage(disk_path)
-        disk_used_pct = int((du.used / du.total) * 100)
-
-
-        cpu_pct = int(psutil.cpu_percent(interval=1))
-
+        snapshot = collect_resource_snapshot(disk_path=disk_path)
+        disk_used_pct = snapshot.disk_used_pct
+        cpu_pct = snapshot.cpu_pct
         host = "maksonchik.ru"
 
-        text = (
-            f"{host}\n"
-            f"Disk {disk_path}: used {disk_used_pct}% (free {human_gb(du.free)} / total {human_gb(du.total)})\n"
-            f"CPU: {cpu_pct}%"
-        )
-
         if mode_report:
-            tg_send_message(OWNER_CHAT_ID, "📊 Daily report\n" + text)
+            tg_send_message(
+                OWNER_CHAT_ID,
+                resource_report_text(snapshot, title="📊 Ежедневный отчёт"),
+            )
             self.stdout.write("report sent")
             return
 
@@ -87,8 +75,8 @@ class Command(BaseCommand):
             self.stdout.write(
                 f"[{now_str}] OK | "
                 f"Disk {disk_path}: {disk_used_pct}% used "
-                f"(used {human_gb(du.used)}, free {human_gb(du.free)}, total {human_gb(du.total)}) | "
-                f"CPU: {cpu_pct}%"
+                f"(free {human_gb(snapshot.disk_free)}, total {human_gb(snapshot.disk_total)}) | "
+                f"RAM: {snapshot.memory_used_pct}% | CPU: {cpu_pct}%"
             )
             return
 
@@ -115,6 +103,11 @@ class Command(BaseCommand):
         with open(state_file, "w") as f:
             json.dump(state, f)
 
-        alert_text = "🚨 LIMIT EXCEEDED\n" + "\n".join(exceeded) + "\n\n" + text
+        alert_text = (
+            "🚨 LIMIT EXCEEDED\n"
+            + "\n".join(exceeded)
+            + "\n\n"
+            + resource_report_text(snapshot, title="📊 Ресурсы сервера")
+        )
         tg_send_message(OWNER_CHAT_ID, alert_text)
         self.stdout.write("alert sent")

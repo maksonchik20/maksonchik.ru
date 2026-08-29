@@ -9,6 +9,7 @@ from django.utils.safestring import mark_safe
 
 from .chat_display import format_message_html
 from .models import (
+    BackgroundTask,
     Message,
     UserTg,
     AdminChatFilter,
@@ -308,11 +309,50 @@ class MutedPeerAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
 
+@admin.register(BackgroundTask)
+class BackgroundTaskAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "task_type",
+        "status",
+        "run_at",
+        "attempts",
+        "max_attempts",
+        "locked_by",
+        "created_at",
+    )
+    list_filter = ("status", "task_type")
+    search_fields = ("idempotency_key", "last_error")
+    ordering = ("run_at", "priority", "created_at")
+    readonly_fields = (
+        "task_type",
+        "payload",
+        "status",
+        "priority",
+        "run_at",
+        "attempts",
+        "max_attempts",
+        "locked_at",
+        "locked_by",
+        "last_error",
+        "idempotency_key",
+        "created_at",
+        "updated_at",
+        "completed_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+
 @admin.register(TelegramOutbox)
 class TelegramOutboxAdmin(admin.ModelAdmin):
-    list_display = ("id", "method", "chat_id", "attempts", "next_attempt_at", "created_at", "dedup_key")
+    list_display = ("id", "method", "chat_id", "attempts", "next_attempt_at", "created_at", "idempotency_key")
     list_filter = ("method",)
-    search_fields = ("chat_id", "dedup_key", "last_error")
+    search_fields = ("chat_id", "idempotency_key", "last_error")
     ordering = ("next_attempt_at",)
     readonly_fields = ("created_at", "payload", "last_error")
 

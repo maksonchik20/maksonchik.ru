@@ -10,7 +10,6 @@ import logging
 import time
 import subprocess
 import sys
-from datetime import timedelta
 from pathlib import Path
 from django.utils import timezone
 from .models import UserTg, Message, FileType, TelegramOutbox
@@ -45,6 +44,7 @@ from .metrics import (
     observe_metric,
     observe_sqlite_lock,
 )
+from .resource_metrics import collect_resource_snapshot, resource_report_text
 from .config import (
     START_PHOTO_ID,
     START_TEXT,
@@ -59,7 +59,8 @@ from .config import (
 from .inner_models.BusinessConnection import BusinessConnection
 from .idempotency import acquire_webhook_update
 from .incoming import enqueue_incoming_update
-from .outbox import enqueue_outbox, edit_notification_dedup_key
+from .background_tasks import cancel_connection_reminders, schedule_connection_reminders
+from .outbox import enqueue_outbox, edit_notification_idempotency_key
 from .event_reporter import report_who_update_event
 from .events_chart import parse_events_period, PERIOD_HELP
 from .telegram import telegram_webhook_secret
@@ -210,15 +211,20 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
         bot_user.refresh_from_db()
         bot_user.last_start_at = now
         bot_user.connection_reminder_sent_at = None
-        bot_user.connection_reminder_at = (
-            None if bot_user.business_is_connected else now + timedelta(minutes=30)
-        )
+        # Старые поля оставлены на время совместимости, но новые напоминания
+        # полностью планируются через BackgroundTask.
+        bot_user.connection_reminder_at = None
         bot_user.save(
             update_fields=[
                 "last_start_at",
                 "connection_reminder_at",
                 "connection_reminder_sent_at",
             ]
+        )
+        schedule_connection_reminders(
+            bot_user,
+            started_at=now,
+            start_update_id=int(data["update_id"]),
         )
         if bot_user.has_active_access(now):
             send_meeting_message(chat_id)
@@ -245,6 +251,8 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
     elif is_message_to_bot(data) and handle_mute_commands(chat_id, from_user_id, text):
         pass
     elif is_message_to_bot(data) and _handle_events_command(chat_id, text):
+        pass
+    elif is_message_to_bot(data) and _handle_metric_command(chat_id, from_user_id, command):
         pass
     elif is_message_to_bot(data) and _handle_send_media_command(chat_id, text):
         pass
@@ -414,6 +422,7 @@ def _handle_business_connection_update(conn: dict) -> None:
     bot_user.connection_reminder_at = None
 
     if conn.get("is_enabled"):
+        cancel_connection_reminders(bot_user)
         if not was_connected:
             observe_metric(BUSINESS_CONNECTION_EVENTS, 1, {"event": "connected"})
         start_trial_if_needed(bot_user, at=now)
@@ -467,6 +476,18 @@ def _handle_events_command(chat_id, text: str) -> bool:
         return True
 
     _spawn_events_chart(chat_id, period_raw or "1h")
+    return True
+
+
+def _handle_metric_command(chat_id, from_user_id, command: str) -> bool:
+    if command != "/metric":
+        return False
+    if str(from_user_id) != str(OWNER_CHAT_ID):
+        # Команда приватная: постороннему не подтверждаем даже её наличие.
+        return True
+
+    snapshot = collect_resource_snapshot()
+    tg_send_message(chat_id, resource_report_text(snapshot))
     return True
 
 
@@ -1002,7 +1023,7 @@ def _send_edit_notification(msg: dict, business_connection: BusinessConnection) 
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
         },
-        dedup_key=edit_notification_dedup_key(msg),
+        idempotency_key=edit_notification_idempotency_key(msg),
     )
 
 def _init_user_bot(

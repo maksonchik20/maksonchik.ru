@@ -167,7 +167,7 @@ class WhoUpdatePaymentTests(TestCase):
         self.assertEqual(order.amount, Decimal("99.00"))
         self.assertEqual(create_payment_mock.call_args.kwargs["amount"], Decimal("99.00"))
         notification = TelegramOutbox.objects.get(
-            dedup_key=f"who-update-payment-open:{order.public_id}"
+            idempotency_key=f"who-update-payment-open:{order.public_id}"
         )
         self.assertIn("переход к оплате", notification.payload["text"])
         self.assertIn("99.00 ₽", notification.payload["text"])
@@ -189,7 +189,7 @@ class WhoUpdatePaymentTests(TestCase):
         self.assertEqual(get_payment_mock.call_count, 1)
         send_message.assert_called_once()
         notification = TelegramOutbox.objects.get(
-            dedup_key=f"who-update-payment-paid:{self.order.public_id}"
+            idempotency_key=f"who-update-payment-paid:{self.order.public_id}"
         )
         self.assertIn("получена оплата", notification.payload["text"])
         self.assertIn("99.00 ₽", notification.payload["text"])

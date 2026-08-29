@@ -33,7 +33,7 @@ def _is_permanent_send_error(error: str) -> bool:
     return any(phrase in lower for phrase in PERMANENT_SEND_ERRORS)
 
 
-def edit_notification_dedup_key(msg) -> str | None:
+def edit_notification_idempotency_key(msg) -> str | None:
     fr = msg.get("from") or {}
     editor_id = fr.get("id")
     edit_date = msg.get("edit_date")
@@ -56,7 +56,7 @@ def _notify_owner_outbox_failed(item: TelegramOutbox, error: str) -> None:
         f"<b>id:</b> {item.pk}\n"
         f"<b>method:</b> {item.method}\n"
         f"<b>chat_id:</b> {item.chat_id}\n"
-        f"<b>dedup_key:</b> {item.dedup_key or '—'}\n"
+        f"<b>idempotency_key:</b> {item.idempotency_key or '—'}\n"
         f"<b>error:</b> {(error or 'unknown error')[:500]}"
     )
     tg_send_message(OWNER_CHAT_ID, text)
@@ -67,7 +67,7 @@ def enqueue_outbox(
     chat_id,
     method: str,
     payload: dict,
-    dedup_key: str | None = None,
+    idempotency_key: str | None = None,
 ) -> None:
     if not chat_id:
         return
@@ -81,15 +81,15 @@ def enqueue_outbox(
 
     try:
         with transaction.atomic():
-            if dedup_key:
+            if idempotency_key:
                 TelegramOutbox.objects.get_or_create(
-                    dedup_key=dedup_key,
+                    idempotency_key=idempotency_key,
                     defaults=defaults,
                 )
                 return
-            TelegramOutbox.objects.create(dedup_key=None, **defaults)
+            TelegramOutbox.objects.create(idempotency_key=None, **defaults)
     except IntegrityError:
-        logger.debug("Outbox dedup skip: %s", dedup_key)
+        logger.debug("Outbox idempotency skip: %s", idempotency_key)
 
 
 def process_outbox(*, limit: int = 50) -> dict:

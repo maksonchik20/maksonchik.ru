@@ -1,0 +1,11 @@
+[Unit]
+Description=Send WhoUpdate resource report every day at 17:00 Moscow time
+
+[Timer]
+OnCalendar=*-*-* 17:00:00 Europe/Moscow
+Persistent=true
+AccuracySec=1s
+Unit=who-update-daily-resource-report.service
+
+[Install]
+WantedBy=timers.target

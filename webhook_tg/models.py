@@ -378,8 +378,60 @@ class TelegramIncomingUpdate(models.Model):
         return f"{self.update_id}: {self.queue}/{self.status}"
 
 
+class BackgroundTask(models.Model):
+    """Надёжная SQLite-очередь отложенных фоновых действий."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Ожидает"
+        PROCESSING = "processing", "Выполняется"
+        COMPLETED = "completed", "Выполнена"
+        FAILED = "failed", "Ошибка"
+        CANCELLED = "cancelled", "Отменена"
+
+    task_type = models.CharField(verbose_name="Тип задачи", max_length=100, db_index=True)
+    payload = models.JSONField(verbose_name="Параметры", default=dict)
+    status = models.CharField(
+        verbose_name="Статус",
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    priority = models.SmallIntegerField(verbose_name="Приоритет", default=100)
+    run_at = models.DateTimeField(verbose_name="Выполнить не раньше", db_index=True)
+    attempts = models.PositiveIntegerField(verbose_name="Попыток", default=0)
+    max_attempts = models.PositiveIntegerField(verbose_name="Максимум попыток", default=10)
+    locked_at = models.DateTimeField(verbose_name="Взята в работу", blank=True, null=True)
+    locked_by = models.CharField(verbose_name="Воркер", max_length=100, blank=True, default="")
+    last_error = models.TextField(verbose_name="Последняя ошибка", blank=True, default="")
+    idempotency_key = models.CharField(
+        verbose_name="Ключ идемпотентности",
+        max_length=255,
+        unique=True,
+    )
+    created_at = models.DateTimeField(verbose_name="Создана", auto_now_add=True)
+    updated_at = models.DateTimeField(verbose_name="Обновлена", auto_now=True)
+    completed_at = models.DateTimeField(verbose_name="Завершена", blank=True, null=True)
+
+    class Meta:
+        verbose_name = "Фоновая задача"
+        verbose_name_plural = "Фоновые задачи"
+        indexes = [
+            models.Index(
+                fields=["status", "run_at", "priority", "created_at"],
+                name="background_task_queue_idx",
+            ),
+            models.Index(
+                fields=["status", "locked_at"],
+                name="background_task_lock_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.task_type}: {self.status} ({self.run_at:%d.%m.%Y %H:%M})"
+
+
 class EditNotificationSent(models.Model):
-    """Deprecated: заменено на TelegramOutbox с dedup_key."""
+    """Deprecated: заменено на TelegramOutbox с idempotency_key."""
 
     editor_id = models.BigIntegerField(verbose_name="ID редактора")
     edit_date = models.BigIntegerField(verbose_name="edit_date из Telegram")
@@ -412,8 +464,8 @@ class TelegramOutbox(models.Model):
         choices=Method.choices,
     )
     payload = models.JSONField(verbose_name="Тело запроса (без chat_id)")
-    dedup_key = models.CharField(
-        verbose_name="Ключ дедупликации",
+    idempotency_key = models.CharField(
+        verbose_name="Ключ идемпотентности",
         max_length=128,
         blank=True,
         null=True,

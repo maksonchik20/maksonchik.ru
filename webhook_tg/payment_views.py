@@ -42,7 +42,7 @@ def _enqueue_owner_checkout_notification(order):
     enqueue_outbox(
         chat_id=OWNER_CHAT_ID,
         method=TelegramOutbox.Method.SEND_MESSAGE,
-        dedup_key=f"who-update-payment-open:{order.public_id}",
+        idempotency_key=f"who-update-payment-open:{order.public_id}",
         payload={
             "text": (
                 "💳 <b>WhoUpdate: переход к оплате</b>\n\n"
@@ -61,7 +61,7 @@ def _enqueue_owner_paid_notification(order, expires):
     enqueue_outbox(
         chat_id=OWNER_CHAT_ID,
         method=TelegramOutbox.Method.SEND_MESSAGE,
-        dedup_key=f"who-update-payment-paid:{order.public_id}",
+        idempotency_key=f"who-update-payment-paid:{order.public_id}",
         payload={
             "text": (
                 "✅ <b>WhoUpdate: получена оплата</b>\n\n"
