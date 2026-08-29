@@ -196,6 +196,7 @@ class WebhookStartTests(NoTelegramApiTestCase):
         self.assertEqual(len(start_buttons), 2)
         self.assertEqual(start_buttons[1]["text"], "🟢 Подключить")
         self.assertEqual(start_buttons[1]["url"], PROFILE_SETTINGS_URL)
+        self.assertEqual(PROFILE_SETTINGS_URL, "tg://settings/edit")
 
         user = UserTg.objects.get(user_id=700001)
         self.assertFalse(user.business_is_connected)

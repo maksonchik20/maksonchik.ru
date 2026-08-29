@@ -21,7 +21,7 @@ START_TEXT = (
     f"<b>@who_update_bot</b>"
 )
 DEMO_CALLBACK_DATA = "who_update_demo"
-PROFILE_SETTINGS_URL = "tg://settings"
+PROFILE_SETTINGS_URL = "tg://settings/edit"
 START_REPLY_MARKUP = {
     "inline_keyboard": [
         [
