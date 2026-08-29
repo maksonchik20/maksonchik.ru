@@ -1,8 +1,10 @@
+import json
 from urllib.parse import quote
 
 from django.contrib import admin
 from django.db.models import Q
 from django.http import HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, StreamingHttpResponse
+from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -16,6 +18,7 @@ from .models import (
     TelegramOutbox,
     TelegramIncomingUpdate,
     BotOutgoingMessage,
+    BotChatEvent,
     MutedPeer,
     WhoUpdatePaymentOrder,
 )
@@ -266,6 +269,7 @@ class AdminChatFilterAdmin(admin.ModelAdmin):
 class UserTgAdmin(admin.ModelAdmin):
     list_display = (
         "username",
+        "dialog_link",
         "user_id",
         "business_is_connected",
         "last_start_at",
@@ -281,6 +285,62 @@ class UserTgAdmin(admin.ModelAdmin):
     list_filter = ("business_is_connected", "access_unlimited")
     search_fields = ("username", "first_name", "user_id", "chat_id", "business_connection_id", "referral_code")
     ordering = ("-last_start_at",)
+    readonly_fields = ("dialog_link",)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "<path:object_id>/dialog/",
+                self.admin_site.admin_view(self.dialog_view),
+                name="webhook_tg_usertg_dialog",
+            ),
+        ]
+        return custom + urls
+
+    @admin.display(description="Диалог")
+    def dialog_link(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        url = reverse("admin:webhook_tg_usertg_dialog", args=[obj.pk])
+        return format_html('<a class="button" href="{}">Открыть диалог</a>', url)
+
+    def dialog_view(self, request, object_id):
+        if not request.user.is_superuser:
+            return HttpResponseForbidden("Диалоги доступны только суперпользователю")
+        bot_user = self.get_object(request, object_id)
+        if bot_user is None:
+            return HttpResponse(status=404)
+
+        total = BotChatEvent.objects.filter(chat_id=bot_user.chat_id).count()
+        events = list(
+            BotChatEvent.objects.filter(chat_id=bot_user.chat_id)
+            .order_by("-created_at", "-id")[:500]
+        )
+        events.reverse()
+        for event in events:
+            event.payload_pretty = json.dumps(
+                event.payload,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+
+        context = {
+            **self.admin_site.each_context(request),
+            "opts": self.model._meta,
+            "original": bot_user,
+            "bot_user": bot_user,
+            "events": events,
+            "event_total": total,
+            "event_limited": total > len(events),
+            "title": f"Диалог с @{bot_user.username}" if bot_user.username else f"Диалог {bot_user.chat_id}",
+        }
+        return TemplateResponse(
+            request,
+            "admin/webhook_tg/usertg/dialog.html",
+            context,
+        )
 
 
 @admin.register(WhoUpdatePaymentOrder)
@@ -411,6 +471,54 @@ class BotOutgoingMessageAdmin(admin.ModelAdmin):
 
     def has_view_permission(self, request, obj=None):
         return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+
+@admin.register(BotChatEvent)
+class BotChatEventAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "chat_id", "recipient", "direction", "event_type", "text_preview")
+    list_filter = ("direction", "event_type", ("created_at", admin.DateFieldListFilter))
+    search_fields = ("chat_id", "text", "update_id", "telegram_message_id")
+    ordering = ("-created_at", "-id")
+    readonly_fields = (
+        "chat_id",
+        "direction",
+        "event_type",
+        "text",
+        "payload",
+        "telegram_message_id",
+        "update_id",
+        "source_key",
+        "created_at",
+    )
+
+    @admin.display(description="Пользователь")
+    def recipient(self, obj):
+        user = UserTg.objects.filter(chat_id=obj.chat_id).only("id", "username", "first_name").first()
+        if user is None:
+            return "—"
+        label = f"@{user.username}" if user.username else user.first_name or str(user.chat_id)
+        url = reverse("admin:webhook_tg_usertg_dialog", args=[user.pk])
+        return format_html('<a href="{}">{}</a>', url, label)
+
+    @admin.display(description="Текст")
+    def text_preview(self, obj):
+        text = obj.text or "—"
+        return text if len(text) <= 100 else text[:97] + "…"
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser

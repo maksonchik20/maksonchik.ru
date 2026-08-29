@@ -75,6 +75,7 @@ from .subscriptions import (
     start_trial_if_needed,
     subscription_keyboard,
 )
+from .bot_outgoing_log import log_bot_incoming
 
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,8 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
     logger.debug("Telegram update_id=%s", data.get("update_id"))
     if use_idempotency and not acquire_webhook_update(data.get("update_id")):
         return
+
+    log_bot_incoming(data)
 
     callback = data.get("callback_query")
     if callback:

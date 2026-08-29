@@ -169,7 +169,12 @@ def dispatch_telegram_request(method: str, chat_id, payload: dict, timeout: int 
         logger.error("%s API error chat_id=%s status=%s response=%s", method, chat_id, response.status_code, result)
         return False, error
 
-    log_bot_outgoing(chat_id=chat_id, method=method)
+    log_bot_outgoing(
+        chat_id=chat_id,
+        method=method,
+        payload=payload,
+        result=result.get("result"),
+    )
     return True, ""
 
 
@@ -224,7 +229,12 @@ def tg_send_business_message(
         error = str(result.get("description") or result)
         logger.error("business sendMessage API error: %s", error)
         return False, error
-    log_bot_outgoing(chat_id=chat_id, method="sendMessage")
+    log_bot_outgoing(
+        chat_id=chat_id,
+        method="sendMessage",
+        payload={"text": text, "business_connection_id": business_connection_id},
+        result=result.get("result"),
+    )
     return True, ""
 
 
@@ -267,6 +277,12 @@ def edit_message_text(
         if not result.get("ok"):
             logger.error("editMessageText API error: %s", result)
             return False
+        log_bot_outgoing(
+            chat_id=chat_id,
+            method="editMessageText",
+            payload={"text": text, "reply_markup": reply_markup or {}},
+            result=result.get("result"),
+        )
         return True
     except (requests.RequestException, ValueError) as exc:
         logger.error("editMessageText failed: %s", _safe_telegram_error(exc))
@@ -487,7 +503,12 @@ def send_document_bytes(
     if not result.get("ok"):
         logger.error("sendDocument bytes API error chat_id=%s response=%s", chat_id, result)
         return False
-    log_bot_outgoing(chat_id=chat_id, method="sendDocument")
+    log_bot_outgoing(
+        chat_id=chat_id,
+        method="sendDocument",
+        payload={"caption": caption, "document": filename},
+        result=result.get("result"),
+    )
     return True
 
 
@@ -541,7 +562,12 @@ def send_photo_bytes(
             response = _telegram_post("sendPhoto", data=data, files=files, timeout=timeout)
             result = response.json()
             if result.get("ok"):
-                log_bot_outgoing(chat_id=chat_id, method="sendPhoto")
+                log_bot_outgoing(
+                    chat_id=chat_id,
+                    method="sendPhoto",
+                    payload={"caption": caption, "photo": filename},
+                    result=result.get("result"),
+                )
                 return True
             logger.error("sendPhoto bytes API error chat_id=%s response=%s", chat_id, result)
             return False
@@ -579,7 +605,12 @@ def send_video_bytes(
             response = _telegram_post("sendVideo", data=data, files=files, timeout=timeout)
             result = response.json()
             if result.get("ok"):
-                log_bot_outgoing(chat_id=chat_id, method="sendVideo")
+                log_bot_outgoing(
+                    chat_id=chat_id,
+                    method="sendVideo",
+                    payload={"caption": caption, "video": filename},
+                    result=result.get("result"),
+                )
                 return True
             logger.error("sendVideo bytes API error chat_id=%s response=%s", chat_id, result)
             return False

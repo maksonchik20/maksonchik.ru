@@ -497,6 +497,72 @@ class BotOutgoingMessage(models.Model):
         return f"{self.method} → {self.chat_id} @ {self.sent_at}"
 
 
+class BotChatEvent(models.Model):
+    """Сообщения и действия в личном диалоге пользователя с ботом."""
+
+    class Direction(models.TextChoices):
+        USER = "user", "Пользователь"
+        BOT = "bot", "Бот"
+
+    class EventType(models.TextChoices):
+        MESSAGE = "message", "Сообщение"
+        EDITED_MESSAGE = "edited_message", "Изменённое сообщение"
+        CALLBACK = "callback", "Нажатие кнопки"
+        PHOTO = "photo", "Фото"
+        VIDEO = "video", "Видео"
+        AUDIO = "audio", "Аудио"
+        DOCUMENT = "document", "Документ"
+        MEDIA_GROUP = "media_group", "Альбом"
+        OTHER = "other", "Другое"
+
+    chat_id = models.BigIntegerField(verbose_name="Chat id", db_index=True)
+    direction = models.CharField(
+        verbose_name="Направление",
+        max_length=8,
+        choices=Direction.choices,
+        db_index=True,
+    )
+    event_type = models.CharField(
+        verbose_name="Тип события",
+        max_length=32,
+        choices=EventType.choices,
+        default=EventType.MESSAGE,
+    )
+    text = models.TextField(verbose_name="Текст", blank=True, default="")
+    payload = models.JSONField(verbose_name="Данные Telegram", blank=True, default=dict)
+    telegram_message_id = models.BigIntegerField(
+        verbose_name="Telegram message id",
+        blank=True,
+        null=True,
+    )
+    update_id = models.BigIntegerField(
+        verbose_name="Telegram update id",
+        blank=True,
+        null=True,
+        db_index=True,
+    )
+    source_key = models.CharField(
+        verbose_name="Ключ источника",
+        max_length=128,
+        blank=True,
+        null=True,
+        unique=True,
+        help_text="Защищает входящие события от повторной записи.",
+    )
+    created_at = models.DateTimeField(verbose_name="Создано", auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Событие диалога с ботом"
+        verbose_name_plural = "Диалоги пользователей с ботом"
+        indexes = [
+            models.Index(fields=["chat_id", "created_at"], name="wu_bot_chat_timeline"),
+        ]
+        ordering = ("created_at", "id")
+
+    def __str__(self):
+        return f"{self.get_direction_display()} → {self.chat_id}: {self.text[:60]}"
+
+
 class Message(models.Model):
     business_connection_id = models.CharField(verbose_name="Business connection id", default="", blank=True, null=True, max_length=255)
     message_id = models.IntegerField(verbose_name="Message Id")

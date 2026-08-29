@@ -1,0 +1,86 @@
+{% extends "admin/base_site.html" %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Главная</a>
+    &rsaquo; <a href="{% url 'admin:webhook_tg_usertg_changelist' %}">Пользователи бота</a>
+    &rsaquo; <a href="{% url 'admin:webhook_tg_usertg_change' bot_user.pk %}">{{ bot_user }}</a>
+    &rsaquo; Диалог
+</div>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+    .wu-dialog-wrap { max-width: 920px; }
+    .wu-dialog-head {
+        display: flex; justify-content: space-between; gap: 20px; align-items: flex-start;
+        margin: 0 0 16px; padding: 16px; border-radius: 12px;
+        background: var(--darkened-bg); border: 1px solid var(--hairline-color);
+    }
+    .wu-dialog-head h1 { margin: 0 0 6px; }
+    .wu-dialog-meta { color: var(--body-quiet-color); line-height: 1.5; }
+    .wu-dialog-list {
+        display: flex; flex-direction: column; gap: 10px; min-height: 240px;
+        max-height: 72vh; overflow-y: auto; padding: 18px;
+        border: 1px solid var(--hairline-color); border-radius: 14px;
+        background: var(--body-bg);
+    }
+    .wu-event { max-width: 78%; padding: 10px 13px; border-radius: 14px; box-sizing: border-box; }
+    .wu-event-user { align-self: flex-end; background: #d9fdd3; color: #172b16; border-bottom-right-radius: 4px; }
+    .wu-event-bot { align-self: flex-start; background: #e8f1fb; color: #16283d; border-bottom-left-radius: 4px; }
+    .wu-event-label { font-size: 11px; font-weight: 700; opacity: .72; margin-bottom: 4px; text-transform: uppercase; }
+    .wu-event-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+    .wu-event-empty { opacity: .65; font-style: italic; }
+    .wu-event-time { margin-top: 6px; font-size: 11px; opacity: .66; text-align: right; }
+    .wu-event details { margin-top: 7px; font-size: 11px; opacity: .78; }
+    .wu-event pre { max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .wu-dialog-empty { margin: auto; color: var(--body-quiet-color); }
+    @media (max-width: 767px) {
+        .wu-dialog-head { display: block; }
+        .wu-event { max-width: 92%; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wu-dialog-wrap">
+    <div class="wu-dialog-head">
+        <div>
+            <h1>{{ title }}</h1>
+            <div class="wu-dialog-meta">
+                {{ bot_user.first_name|default:"Имя не указано" }} · chat_id {{ bot_user.chat_id }}<br>
+                {% if bot_user.business_is_connected %}Бот подключён{% else %}Бот не подключён{% endif %}
+            </div>
+        </div>
+        <a class="button" href="{% url 'admin:webhook_tg_usertg_change' bot_user.pk %}">Карточка пользователя</a>
+    </div>
+
+    <p>
+        {% if event_limited %}Показаны последние {{ events|length }} из {{ event_total }} событий.{% else %}Событий: {{ event_total }}.{% endif %}
+    </p>
+    <div class="wu-dialog-list" id="wu-dialog-list">
+        {% for event in events %}
+            <article class="wu-event wu-event-{{ event.direction }}">
+                <div class="wu-event-label">{{ event.get_direction_display }} · {{ event.get_event_type_display }}</div>
+                {% if event.text %}
+                    <div class="wu-event-text">{{ event.text }}</div>
+                {% else %}
+                    <div class="wu-event-text wu-event-empty">Без текста</div>
+                {% endif %}
+                <div class="wu-event-time">{{ event.created_at|date:"d.m.Y H:i:s" }}</div>
+                <details>
+                    <summary>Данные Telegram</summary>
+                    <pre>{{ event.payload_pretty }}</pre>
+                </details>
+            </article>
+        {% empty %}
+            <div class="wu-dialog-empty">Событий пока нет. Новые сообщения и нажатия появятся здесь автоматически.</div>
+        {% endfor %}
+    </div>
+</div>
+<script>
+    const dialog = document.getElementById("wu-dialog-list");
+    if (dialog) dialog.scrollTop = dialog.scrollHeight;
+</script>
+{% endblock %}
