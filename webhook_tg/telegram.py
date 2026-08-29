@@ -11,7 +11,14 @@ from requests.adapters import HTTPAdapter
 from env import TOKEN_BOT
 from .inner_models.BusinessConnection import BusinessConnection
 from .bot_outgoing_log import log_bot_outgoing
-from .metrics import TELEGRAM_MESSAGES_SENT, TELEGRAM_SEND_DURATION, observe_metric
+from .metrics import (
+    TELEGRAM_MESSAGES_FAILED,
+    TELEGRAM_MESSAGES_SENT,
+    TELEGRAM_SEND_ATTEMPTS,
+    TELEGRAM_SEND_DURATION,
+    TELEGRAM_SUCCESS_RATE,
+    observe_metric,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +72,8 @@ def _telegram_post(method: str, *, json=None, data=None, files=None, timeout: in
     """POST к Bot API с connection pool и circuit breaker для endpoint'ов."""
     started_at = time.monotonic()
     is_send = method.startswith("send")
+    if is_send:
+        observe_metric(TELEGRAM_SEND_ATTEMPTS, 1, {"method": method})
     last_error = None
     attempted = False
     now = time.monotonic()
@@ -101,6 +110,9 @@ def _telegram_post(method: str, *, json=None, data=None, files=None, timeout: in
                 )
                 if success:
                     observe_metric(TELEGRAM_MESSAGES_SENT, 1, {"method": method})
+                else:
+                    observe_metric(TELEGRAM_MESSAGES_FAILED, 1, {"method": method, "reason": "api"})
+                observe_metric(TELEGRAM_SUCCESS_RATE, 100 if success else 0, {"method": method})
             return response
         except requests.RequestException as exc:
             last_error = exc
@@ -118,6 +130,8 @@ def _telegram_post(method: str, *, json=None, data=None, files=None, timeout: in
                 (time.monotonic() - started_at) * 1000,
                 {"method": method, "status": "error"},
             )
+            observe_metric(TELEGRAM_MESSAGES_FAILED, 1, {"method": method, "reason": "network"})
+            observe_metric(TELEGRAM_SUCCESS_RATE, 0, {"method": method})
         raise requests.ConnectionError(_safe_telegram_error(last_error))
     if not attempted:
         if is_send:
@@ -126,6 +140,8 @@ def _telegram_post(method: str, *, json=None, data=None, files=None, timeout: in
                 (time.monotonic() - started_at) * 1000,
                 {"method": method, "status": "error"},
             )
+            observe_metric(TELEGRAM_MESSAGES_FAILED, 1, {"method": method, "reason": "circuit_breaker"})
+            observe_metric(TELEGRAM_SUCCESS_RATE, 0, {"method": method})
         raise requests.ConnectionError("Telegram API endpoints temporarily disabled by circuit breaker")
     raise RuntimeError("Telegram API недоступен")
 

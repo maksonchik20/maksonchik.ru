@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand
 
 from webhook_tg.outbox import process_outbox
+from webhook_tg.metrics import record_heartbeat
 
 
 class Command(BaseCommand):
@@ -16,6 +17,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         stats = process_outbox(limit=options["limit"])
+        record_heartbeat("outbox", min_interval_seconds=0)
         self.stdout.write(
             self.style.SUCCESS(
                 f"Outbox: processed={stats['processed']} sent={stats['sent']} "

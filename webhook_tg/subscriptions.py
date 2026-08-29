@@ -91,6 +91,9 @@ def grant_referral_reward(invitee: UserTg, at=None) -> bool:
     invitee.referral_rewarded_at = at
     invitee.save(update_fields=["referral_rewarded_at"])
 
+    from .metrics import REFERRAL_REWARDS, observe_metric
+    observe_metric(REFERRAL_REWARDS, 1)
+
     from .telegram import tg_send_message
 
     transaction.on_commit(

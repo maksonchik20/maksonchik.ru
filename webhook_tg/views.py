@@ -34,7 +34,14 @@ from .telegram import (
     download_telegram_file_bytes,
     _guess_media_filename,
 )
-from .metrics import WEBHOOK_DURATION, observe_metric
+from .metrics import (
+    BUSINESS_CONNECTION_EVENTS,
+    USER_STARTS,
+    WEBHOOK_DURATION,
+    WEBHOOK_REQUESTS,
+    observe_metric,
+    observe_sqlite_lock,
+)
 from .config import (
     START_PHOTO_ID,
     START_TEXT,
@@ -175,6 +182,7 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
     first_name = msg.get("from", {}).get("first_name")
     command = _bot_command(text) if text else ""
     if command == "/start" and is_message_to_bot(data):
+        observe_metric(USER_STARTS, 1)
         bot_user = init_user_bot(
             user_id=from_user_id,
             chat_id=chat_id,
@@ -237,14 +245,16 @@ def webhook_tg(request: HttpRequest):
         response = _webhook_tg_response(request)
         return response
     finally:
+        status = getattr(response, "status_code", 500)
         observe_metric(
             WEBHOOK_DURATION,
             (time.monotonic() - started_at) * 1000,
             {
                 "method": request.method,
-                "status": getattr(response, "status_code", 500),
+                "status": status,
             },
         )
+        observe_metric(WEBHOOK_REQUESTS, 1, {"method": request.method, "status": status})
 
 
 def _webhook_tg_response(request: HttpRequest):
@@ -261,14 +271,15 @@ def _webhook_tg_response(request: HttpRequest):
         if getattr(settings, "TELEGRAM_WEBHOOK_SYNC_PROCESSING", False):
             process_telegram_update(data)
         else:
-            enqueue_incoming_update(data)
+            enqueue_incoming_update(data, source="webhook")
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
         logger.warning("Bad Telegram webhook JSON: %s", e)
         return JsonResponse({"ok": False, "error": "bad json"}, status=400)
     except ValueError as exc:
         logger.warning("Invalid Telegram webhook update: %s", exc)
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
-    except Exception:
+    except Exception as exc:
+        observe_sqlite_lock(exc, "webhook")
         # Telegram повторит webhook при 5xx, поэтому не подтверждаем потерянный update.
         logger.exception("Failed to enqueue Telegram webhook update")
         return JsonResponse({"ok": False}, status=503)
@@ -319,11 +330,14 @@ def _handle_business_connection_update(conn: dict) -> None:
     )
 
     now = timezone.now()
+    was_connected = bot_user.business_is_connected
     bot_user.business_connection_id = conn.get("id") or None
     bot_user.business_is_connected = bool(conn.get("is_enabled"))
     bot_user.connection_reminder_at = None
 
     if conn.get("is_enabled"):
+        if not was_connected:
+            observe_metric(BUSINESS_CONNECTION_EVENTS, 1, {"event": "connected"})
         start_trial_if_needed(bot_user, at=now)
         bot_user.business_connected_at = now
         bot_user.save(
@@ -346,6 +360,8 @@ def _handle_business_connection_update(conn: dict) -> None:
         tg_send_message(OWNER_CHAT_ID, _owner_connection_notification(conn))
         print(f"business_connection enabled user_chat_id={user_chat_id}")
     else:
+        if was_connected:
+            observe_metric(BUSINESS_CONNECTION_EVENTS, 1, {"event": "disconnected"})
         bot_user.business_disconnected_at = now
         bot_user.save(
             update_fields=[

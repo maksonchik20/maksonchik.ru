@@ -11,6 +11,7 @@ from django.utils import timezone
 from env import OWNER_CHAT_ID
 
 from .models import TelegramOutbox
+from .metrics import OUTBOX_EVENTS, observe_metric
 from .telegram import dispatch_telegram_request, tg_send_message
 
 logger = logging.getLogger(__name__)
@@ -112,6 +113,7 @@ def process_outbox(*, limit: int = 50) -> dict:
         if ok:
             item.delete()
             stats["sent"] += 1
+            observe_metric(OUTBOX_EVENTS, 1, {"status": "sent", "method": item.method})
             logger.info("Outbox sent id=%s method=%s chat_id=%s", pk, item.method, item.chat_id)
             continue
 
@@ -124,6 +126,7 @@ def process_outbox(*, limit: int = 50) -> dict:
             )
             item.delete()
             stats["failed"] += 1
+            observe_metric(OUTBOX_EVENTS, 1, {"status": "dropped", "method": item.method})
             continue
 
         new_attempts = item.attempts + 1
@@ -133,6 +136,7 @@ def process_outbox(*, limit: int = 50) -> dict:
             next_attempt_at=_next_attempt_at(new_attempts),
         )
         stats["failed"] += 1
+        observe_metric(OUTBOX_EVENTS, 1, {"status": "retry", "method": item.method})
         if new_attempts == OWNER_ALERT_AFTER_ATTEMPTS:
             _notify_owner_outbox_failed(item, error)
         logger.warning(

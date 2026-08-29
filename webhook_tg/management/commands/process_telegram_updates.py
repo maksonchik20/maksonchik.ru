@@ -7,6 +7,7 @@ from django.db import close_old_connections
 
 from webhook_tg.incoming import claim_next_update, process_claimed_update, recover_stale_updates
 from webhook_tg.models import TelegramIncomingUpdate
+from webhook_tg.metrics import record_heartbeat
 
 
 class Command(BaseCommand):
@@ -31,6 +32,7 @@ class Command(BaseCommand):
 
         idle_sleep = 0.05 if queue == TelegramIncomingUpdate.Queue.PRIORITY else 0.2
         while True:
+            record_heartbeat(f"incoming_{queue}")
             close_old_connections()
             item = claim_next_update(queue)
             if item is None:

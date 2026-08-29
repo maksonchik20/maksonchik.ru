@@ -21,6 +21,7 @@ from .models import TelegramOutbox, UserTg, WhoUpdatePaymentOrder
 from .outbox import enqueue_outbox
 from .subscriptions import CHECKOUT_SIGNING_SALT, plan_config_for_user
 from .telegram import tg_send_message
+from .metrics import PAYMENT_EVENTS, observe_metric
 from .yookassa import YooKassaError, create_payment, get_payment, is_webhook_ip
 
 
@@ -124,6 +125,7 @@ def fulfill_order(order, payment_id):
             "access_expires_at_after",
         ]
     )
+    observe_metric(PAYMENT_EVENTS, 1, {"status": "paid", "plan": order.plan})
 
     expires = timezone.localtime(bot_user.access_expires_at)
     def notify_payment_completed():
@@ -172,6 +174,7 @@ def subscribe(request, plan, token):
         logger.exception("WhoUpdate payment creation failed order=%s", order.public_id)
         order.status = WhoUpdatePaymentOrder.Status.FAILED
         order.save(update_fields=["status"])
+        observe_metric(PAYMENT_EVENTS, 1, {"status": "failed", "plan": order.plan})
         return HttpResponse("Не удалось создать оплату. Попробуйте позже.", status=502)
 
     order.yookassa_payment_id = payment["id"]
@@ -179,8 +182,10 @@ def subscribe(request, plan, token):
     if not payment.get("confirmation_url"):
         order.status = WhoUpdatePaymentOrder.Status.FAILED
         order.save(update_fields=["status"])
+        observe_metric(PAYMENT_EVENTS, 1, {"status": "failed", "plan": order.plan})
         return HttpResponse("ЮKassa не вернула ссылку на оплату.", status=502)
     _enqueue_owner_checkout_notification(order)
+    observe_metric(PAYMENT_EVENTS, 1, {"status": "checkout", "plan": order.plan})
     return redirect(payment["confirmation_url"])
 
 
@@ -231,4 +236,5 @@ def yookassa_webhook(request):
             pk=order.pk,
             status=WhoUpdatePaymentOrder.Status.PENDING,
         ).update(status=WhoUpdatePaymentOrder.Status.CANCELED)
+        observe_metric(PAYMENT_EVENTS, 1, {"status": "canceled", "plan": order.plan})
     return HttpResponse(status=200)

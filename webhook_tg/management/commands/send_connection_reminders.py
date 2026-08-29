@@ -11,6 +11,7 @@ from webhook_tg.config import CONNECTION_REMINDER_TEXT, START_PHOTO_ID
 from webhook_tg.models import UserTg
 from webhook_tg.subscriptions import notify_access_expired
 from webhook_tg.telegram import dispatch_telegram_request
+from webhook_tg.metrics import record_heartbeat
 
 
 LOCK_PATH = Path("/tmp/who-update-connection-reminders.lock")
@@ -106,3 +107,4 @@ class Command(BaseCommand):
                 f"due={len(users)} sent={sent} permanent={permanent} failed={failed} "
                 f"expired_due={len(expired_users)} expired_sent={expired_sent}"
             )
+            record_heartbeat("connection_reminders", min_interval_seconds=0)

@@ -8,9 +8,12 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from webhook_tg.metrics import (
-    TELEGRAM_MESSAGES_SENT,
+    COUNT_METRICS,
+    GAUGE_METRICS,
     closed_bucket_cutoff,
+    record_heartbeat,
 )
+from webhook_tg.metric_snapshots import collect_database_gauges
 from webhook_tg.models import OperationalMetricBucket
 
 METADATA_TOKEN_URL = (
@@ -40,6 +43,8 @@ class Command(BaseCommand):
         parser.add_argument("--limit", type=int, default=500)
 
     def handle(self, *args, **options):
+        collect_database_gauges()
+        record_heartbeat("metrics_exporter", min_interval_seconds=0)
         buckets = list(
             OperationalMetricBucket.objects.filter(
                 exported_at__isnull=True,
@@ -57,7 +62,7 @@ class Command(BaseCommand):
                 "environment": "production",
                 **bucket.labels,
             }
-            if bucket.metric_name == TELEGRAM_MESSAGES_SENT:
+            if bucket.metric_name in COUNT_METRICS:
                 metrics.append(
                     {
                         "name": bucket.metric_name,
@@ -65,6 +70,16 @@ class Command(BaseCommand):
                         "type": "IGAUGE",
                         "ts": timestamp,
                         "value": bucket.count,
+                    }
+                )
+            elif bucket.metric_name in GAUGE_METRICS:
+                metrics.append(
+                    {
+                        "name": bucket.metric_name,
+                        "labels": labels,
+                        "type": "DGAUGE",
+                        "ts": timestamp,
+                        "value": bucket.total,
                     }
                 )
             else:

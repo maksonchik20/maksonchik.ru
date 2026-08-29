@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 
 from django.db import IntegrityError, transaction
@@ -8,6 +9,14 @@ from django.utils import timezone
 
 from .idempotency import mark_webhook_update_processed
 from .models import TelegramIncomingUpdate, WebhookUpdate
+from .metrics import (
+    INCOMING_END_TO_END_DURATION,
+    INCOMING_PROCESSING_DURATION,
+    INCOMING_UPDATES_PROCESSED,
+    INCOMING_UPDATES_RECEIVED,
+    observe_metric,
+    observe_sqlite_lock,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +38,14 @@ def classify_update(data: dict) -> str:
     return TelegramIncomingUpdate.Queue.BUSINESS
 
 
-def enqueue_incoming_update(data: dict) -> tuple[TelegramIncomingUpdate | None, bool]:
+def enqueue_incoming_update(data: dict, *, source: str = "unknown") -> tuple[TelegramIncomingUpdate | None, bool]:
     update_id = data.get("update_id")
     if update_id is None:
         raise ValueError("Telegram update without update_id")
 
     try:
         with transaction.atomic():
-            return TelegramIncomingUpdate.objects.get_or_create(
+            item, created = TelegramIncomingUpdate.objects.get_or_create(
                 update_id=update_id,
                 defaults={
                     "payload": data,
@@ -44,6 +53,13 @@ def enqueue_incoming_update(data: dict) -> tuple[TelegramIncomingUpdate | None, 
                     "next_attempt_at": timezone.now(),
                 },
             )
+            if created:
+                observe_metric(
+                    INCOMING_UPDATES_RECEIVED,
+                    1,
+                    {"queue": item.queue, "source": source},
+                )
+            return item, created
     except IntegrityError:
         return TelegramIncomingUpdate.objects.filter(update_id=update_id).first(), False
 
@@ -91,12 +107,14 @@ def claim_next_update(queue: str) -> TelegramIncomingUpdate | None:
 
 
 def process_claimed_update(item: TelegramIncomingUpdate) -> bool:
+    started = time.monotonic()
     if WebhookUpdate.objects.filter(update_id=item.update_id).exists():
         TelegramIncomingUpdate.objects.filter(pk=item.pk).update(
             status=TelegramIncomingUpdate.Status.DONE,
             processed_at=timezone.now(),
             last_error="",
         )
+        observe_metric(INCOMING_UPDATES_PROCESSED, 1, {"queue": item.queue, "status": "duplicate"})
         return True
 
     try:
@@ -106,6 +124,7 @@ def process_claimed_update(item: TelegramIncomingUpdate) -> bool:
         process_telegram_update(item.payload, use_idempotency=False)
         mark_webhook_update_processed(item.update_id)
     except Exception as exc:
+        observe_sqlite_lock(exc, "incoming_worker")
         attempts = item.attempts + 1
         terminal = attempts >= MAX_ATTEMPTS
         delay = min(2 ** max(attempts - 1, 0), MAX_BACKOFF_SECONDS)
@@ -126,11 +145,29 @@ def process_claimed_update(item: TelegramIncomingUpdate) -> bool:
             item.queue,
             attempts,
         )
+        observe_metric(
+            INCOMING_PROCESSING_DURATION,
+            (time.monotonic() - started) * 1000,
+            {"queue": item.queue, "status": "error"},
+        )
+        observe_metric(INCOMING_UPDATES_PROCESSED, 1, {"queue": item.queue, "status": "error"})
         return False
 
+    processed_at = timezone.now()
     TelegramIncomingUpdate.objects.filter(pk=item.pk).update(
         status=TelegramIncomingUpdate.Status.DONE,
-        processed_at=timezone.now(),
+        processed_at=processed_at,
         last_error="",
     )
+    observe_metric(
+        INCOMING_PROCESSING_DURATION,
+        (time.monotonic() - started) * 1000,
+        {"queue": item.queue, "status": "success"},
+    )
+    observe_metric(
+        INCOMING_END_TO_END_DURATION,
+        max(0, (processed_at - item.created_at).total_seconds() * 1000),
+        {"queue": item.queue},
+    )
+    observe_metric(INCOMING_UPDATES_PROCESSED, 1, {"queue": item.queue, "status": "success"})
     return True
