@@ -95,12 +95,20 @@ class LeadFormTest(TestCase):
         self.assertTrue(lead.notification_error)
 
     def test_global_form_is_rendered_on_key_pages(self):
-        for path in ("/", "/bot/", "/blog/", "/privacy/"):
+        for path in ("/", "/blog/", "/privacy/"):
             with self.subTest(path=path):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, 'id="lead-form"')
                 self.assertContains(response, 'href="/privacy/"')
+
+    def test_bot_page_has_no_development_lead_form(self):
+        response = self.client.get("/bot/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'id="lead-form"')
+        self.assertNotContains(response, "Узнайте стоимость и сроки")
+        self.assertContains(response, "Без Telegram Premium")
 
     def test_lead_is_registered_in_admin(self):
         self.assertIn(Lead, admin.site._registry)

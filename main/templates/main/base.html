@@ -646,6 +646,7 @@
     {% block content %}{% endblock %}
   </main>
 
+  {% block lead_section %}
   <section class="lead-section wrap" id="request">
     <div class="lead-shell">
       <div class="lead-copy">
@@ -699,12 +700,15 @@
       </div>
     </div>
   </section>
+  {% endblock %}
 
   {% block after_lead %}{% endblock %}
 
+  {% block lead_dialog %}
   <dialog class="lead-dialog" id="lead-dialog" aria-labelledby="lead-title" aria-describedby="lead-description">
     <button class="lead-dialog-close" type="button" aria-label="Закрыть форму">×</button>
   </dialog>
+  {% endblock %}
 
   <footer>
     <div class="wrap footer-row">
