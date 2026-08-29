@@ -134,3 +134,4 @@ TELEGRAM_WEBHOOK_SECRET_REQUIRED = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+WHO_UPDATE_DEMO_MEDIA_ROOT = BASE_DIR.parent / "demo_media"

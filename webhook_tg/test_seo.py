@@ -24,6 +24,11 @@ class SeoPagesTest(SimpleTestCase):
             '<link rel="canonical" href="https://maksonchik.ru/bot/">',
             html=True,
         )
+        self.assertContains(response, "Посмотреть демонстрацию", count=3)
+        self.assertContains(response, 'preload="none"')
+        self.assertContains(response, "/who-update-demo-media/deleted-message.mp4")
+        self.assertContains(response, "/who-update-demo-media/edited-message.mp4")
+        self.assertContains(response, "/who-update-demo-media/hidden-media.mp4")
 
     def test_who_update_alias_redirects_permanently(self):
         response = self.client.get("/who-update-bot/")

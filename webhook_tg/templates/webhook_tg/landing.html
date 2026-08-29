@@ -202,6 +202,8 @@
   .feature-card {
     padding: 24px;
     min-height: 100%;
+    display: flex;
+    flex-direction: column;
   }
   .feature-card h3 {
     font-family: var(--font-display);
@@ -215,6 +217,62 @@
     color: var(--muted);
     font-size: 0.94rem;
     line-height: 1.65;
+  }
+  .demo-trigger {
+    align-self: flex-start;
+    margin-top: auto;
+    padding-top: 18px;
+    border: 0;
+    background: transparent;
+    color: var(--bot-accent);
+    font: inherit;
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .demo-trigger:hover, .demo-trigger:focus-visible { color: var(--ink); }
+  .demo-trigger::after { content: " →"; }
+
+  .demo-dialog {
+    width: min(880px, calc(100vw - 28px));
+    max-height: calc(100dvh - 28px);
+    padding: 0;
+    overflow: hidden;
+    color: var(--ink);
+    background: #090b14;
+    border: 1px solid var(--bot-accent-border);
+    border-radius: 22px;
+    box-shadow: 0 28px 90px rgba(0,0,0,.65);
+  }
+  .demo-dialog::backdrop {
+    background: rgba(2, 3, 8, .84);
+    backdrop-filter: blur(8px);
+  }
+  .demo-dialog__head { padding: 24px 64px 18px 24px; }
+  .demo-dialog__head h2 {
+    margin: 0 0 8px;
+    font-family: var(--font-display);
+    font-size: clamp(1.35rem, 3vw, 2rem);
+  }
+  .demo-dialog__head p { margin: 0; color: var(--muted); line-height: 1.55; }
+  .demo-dialog__close {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    width: 40px;
+    height: 40px;
+    border: 0;
+    border-radius: 50%;
+    color: var(--ink);
+    background: rgba(255,255,255,.08);
+    font-size: 26px;
+    cursor: pointer;
+  }
+  .demo-dialog__video {
+    display: block;
+    width: 100%;
+    max-height: 68dvh;
+    background: #000;
   }
 
   .steps-grid {
@@ -379,10 +437,12 @@
       <article class="feature-card holo-card" data-reveal data-reveal-delay="1">
         <h3>Удаления сразу</h3>
         <p>Когда сообщение исчезает из чата, бот присылает уведомление с сохранённым текстом — если успел его записать.</p>
+        <button class="demo-trigger" type="button" data-demo-video="/who-update-demo-media/deleted-message.mp4" data-demo-title="Удаление сообщения" data-demo-description="Собеседник удаляет сообщение, а WhoUpdate присылает сохранённую копию.">Посмотреть демонстрацию</button>
       </article>
       <article class="feature-card holo-card" data-reveal data-reveal-delay="2">
         <h3>Правки до и после</h3>
         <p>Видите старую и новую версию. Удобно ловить «лёгкие» правки смысла, цифр и договорённостей.</p>
+        <button class="demo-trigger" type="button" data-demo-video="/who-update-demo-media/edited-message.mp4" data-demo-title="Изменение сообщения" data-demo-description="WhoUpdate замечает редактирование и показывает исходный текст сообщения.">Посмотреть демонстрацию</button>
       </article>
       <article class="feature-card holo-card" data-reveal data-reveal-delay="3">
         <h3>Медиа сразу в Telegram</h3>
@@ -391,6 +451,7 @@
       <article class="feature-card holo-card" data-reveal data-reveal-delay="4">
         <h3>Одноразовые фото и видео</h3>
         <p>Не открывайте view-once. Ответьте на сообщение любым текстом (reply) — WhoUpdate пришлёт копию в чат с ботом.</p>
+        <button class="demo-trigger" type="button" data-demo-video="/who-update-demo-media/hidden-media.mp4" data-demo-title="Сохранение скрытого медиа" data-demo-description="Достаточно ответить на одноразовое фото или видео, не открывая его, — бот пришлёт копию.">Посмотреть демонстрацию</button>
       </article>
       <article class="feature-card holo-card" data-reveal data-reveal-delay="5">
         <h3>Только ваши чаты</h3>
@@ -509,6 +570,15 @@
       </div>
     </div>
   </section>
+
+  <dialog class="demo-dialog" id="demo-dialog" aria-labelledby="demo-dialog-title" aria-describedby="demo-dialog-description">
+    <button class="demo-dialog__close" type="button" aria-label="Закрыть демонстрацию">×</button>
+    <div class="demo-dialog__head">
+      <h2 id="demo-dialog-title">Демонстрация WhoUpdate</h2>
+      <p id="demo-dialog-description"></p>
+    </div>
+    <video class="demo-dialog__video" controls playsinline preload="none"></video>
+  </dialog>
 </div>
 {% endblock %}
 
@@ -550,6 +620,35 @@
         card.style.transform = "perspective(1000px) rotateY(" + (x * 10) + "deg) rotateX(" + (-y * 10) + "deg)";
       });
       card.addEventListener("mouseleave", function () { card.style.transform = ""; });
+    });
+  }
+
+  var demoDialog = document.getElementById("demo-dialog");
+  var demoVideo = demoDialog && demoDialog.querySelector("video");
+  var demoTitle = document.getElementById("demo-dialog-title");
+  var demoDescription = document.getElementById("demo-dialog-description");
+  document.querySelectorAll("[data-demo-video]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      if (!demoDialog || !demoVideo) return;
+      demoTitle.textContent = button.dataset.demoTitle || "Демонстрация WhoUpdate";
+      demoDescription.textContent = button.dataset.demoDescription || "";
+      demoVideo.src = button.dataset.demoVideo;
+      demoVideo.load();
+      demoDialog.showModal();
+      demoVideo.play().catch(function () {});
+    });
+  });
+  if (demoDialog && demoVideo) {
+    demoDialog.querySelector(".demo-dialog__close").addEventListener("click", function () {
+      demoDialog.close();
+    });
+    demoDialog.addEventListener("click", function (event) {
+      if (event.target === demoDialog) demoDialog.close();
+    });
+    demoDialog.addEventListener("close", function () {
+      demoVideo.pause();
+      demoVideo.removeAttribute("src");
+      demoVideo.load();
     });
   }
 })();
