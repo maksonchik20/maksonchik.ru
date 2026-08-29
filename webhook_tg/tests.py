@@ -264,6 +264,41 @@ class WebhookStartTests(NoTelegramApiTestCase):
         self.assertTrue(user.business_is_connected)
         self.assertIsNone(user.connection_reminder_at)
 
+    def test_referral_start_notification_contains_inviter_username(self):
+        inviter = UserTg.objects.create(
+            user_id=710001,
+            chat_id=610001,
+            username="coffee_inviter",
+            access_unlimited=False,
+            access_expires_at=timezone.now() + timedelta(days=7),
+        )
+        payload = make_start_payload(
+            chat_id=610002,
+            user_id=710002,
+            username="new_referral",
+            update_id=103,
+        )
+        payload["message"]["text"] = f"/start ref_{inviter.referral_code}"
+
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        owner_texts = [
+            get_post_call_args(call)[1].get("text", "")
+            for call in self.mock_post.call_args_list
+            if str(get_post_call_args(call)[1].get("chat_id")) == "1394340082"
+        ]
+        referral_notification = next(
+            text for text in owner_texts if "Новый пользователь WhoUpdate" in text
+        )
+        self.assertIn("Источник: реферальная ссылка", referral_notification)
+        self.assertIn("Пригласил: @coffee_inviter", referral_notification)
+        self.assertIn("Username: @new_referral", referral_notification)
+
     def test_start_does_not_send_on_non_start_message(self):
         """Если текст не /start, отправка сообщения не вызывается."""
         payload = make_start_payload()
@@ -451,6 +486,53 @@ class BusinessConnectionActivatedTests(NoTelegramApiTestCase):
             if get_post_call_args(c)[0] and "sendMessage" in str(get_post_call_args(c)[0])
         ]
         self.assertFalse(any("WhoUpdate полностью подключён" in text for text in texts))
+
+    def test_referral_connection_notification_contains_inviter_username(self):
+        self.mock_post.return_value.json.return_value = {"ok": True, "result": True}
+        inviter = UserTg.objects.create(
+            user_id=820001,
+            chat_id=820001,
+            username="restaurant_inviter",
+            access_unlimited=False,
+            access_expires_at=timezone.now() + timedelta(days=7),
+        )
+        UserTg.objects.create(
+            user_id=820002,
+            chat_id=820002,
+            username="connected_referral",
+            referred_by=inviter,
+            access_unlimited=False,
+            access_expires_at=timezone.now() + timedelta(days=7),
+        )
+        payload = {
+            "update_id": 94003,
+            "business_connection": {
+                "id": "conn_referral_1",
+                "user": {
+                    "id": 820002,
+                    "first_name": "Referral",
+                    "username": "connected_referral",
+                },
+                "user_chat_id": 820002,
+                "is_enabled": True,
+            },
+        }
+
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        texts = [
+            get_post_call_args(call)[1].get("text", "")
+            for call in self.mock_post.call_args_list
+        ]
+        notification = next(text for text in texts if "WhoUpdate полностью подключён" in text)
+        self.assertIn("Источник: реферальная ссылка", notification)
+        self.assertIn("Пригласил: @restaurant_inviter", notification)
+        self.assertIn("Username: @connected_referral", notification)
 
 
 class WebhookBusinessMessageTests(NoTelegramApiTestCase):

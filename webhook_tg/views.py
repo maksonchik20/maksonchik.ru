@@ -184,16 +184,19 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
     command = _bot_command(text) if text else ""
     if command == "/start" and is_message_to_bot(data):
         observe_metric(USER_STARTS, 1)
-        bot_user = init_user_bot(
+        bot_user, created = _init_user_bot(
             user_id=from_user_id,
             chat_id=chat_id,
             username=username,
             first_name=first_name,
+            notify_owner=False,
         )
         apply_rollout_policy(bot_user)
         start_parts = str(text or "").split(None, 1)
         start_payload = start_parts[1] if len(start_parts) > 1 else ""
         register_referral(bot_user, start_payload)
+        if created:
+            tg_send_message(OWNER_CHAT_ID, _owner_start_notification(bot_user))
         now = timezone.now()
         start_trial_if_needed(bot_user, at=now)
         bot_user.refresh_from_db()
@@ -302,7 +305,34 @@ def send_meeting_message(chat_id):
         raise RuntimeError(f"Failed to send /start photo to chat_id={chat_id}")
 
 
-def _owner_connection_notification(conn: dict) -> str:
+def _referral_owner_section(bot_user: UserTg) -> str:
+    if not bot_user.referred_by_id:
+        return ""
+    inviter = UserTg.objects.filter(pk=bot_user.referred_by_id).first()
+    if inviter is None:
+        return "\n\n👥 <b>Источник: реферальная ссылка</b>"
+    inviter_username = str(inviter.username or "").strip().lstrip("@")
+    inviter_label = f"@{html.escape(inviter_username)}" if inviter_username else "—"
+    return (
+        "\n\n👥 <b>Источник: реферальная ссылка</b>\n"
+        f"Пригласил: {inviter_label}\n"
+        f"Telegram ID пригласившего: <code>{inviter.user_id}</code>"
+    )
+
+
+def _owner_start_notification(bot_user: UserTg) -> str:
+    username = str(bot_user.username or "").strip().lstrip("@")
+    username_label = f"@{html.escape(username)}" if username else "—"
+    return (
+        "🆕 <b>Новый пользователь WhoUpdate</b>\n\n"
+        f"Пользователь: {html.escape(str(bot_user.first_name or '—'))}\n"
+        f"Username: {username_label}\n"
+        f"Telegram ID: <code>{bot_user.user_id}</code>"
+        f"{_referral_owner_section(bot_user)}"
+    )
+
+
+def _owner_connection_notification(conn: dict, bot_user: UserTg) -> str:
     user = conn.get("user") or {}
     username = str(user.get("username") or "").strip().lstrip("@")
     full_name = " ".join(
@@ -321,6 +351,7 @@ def _owner_connection_notification(conn: dict) -> str:
         f"Telegram ID: <code>{html.escape(str(user.get('id') or '—'))}</code>\n"
         "Business connection ID: "
         f"<code>{html.escape(str(conn.get('id') or '—'))}</code>"
+        f"{_referral_owner_section(bot_user)}"
     )
 
 
@@ -367,7 +398,7 @@ def _handle_business_connection_update(conn: dict) -> None:
                 reply_markup=subscription_keyboard(bot_user),
             )
         grant_referral_reward(bot_user, at=now)
-        tg_send_message(OWNER_CHAT_ID, _owner_connection_notification(conn))
+        tg_send_message(OWNER_CHAT_ID, _owner_connection_notification(conn, bot_user))
         print(f"business_connection enabled user_chat_id={user_chat_id}")
     else:
         if was_connected:
@@ -937,7 +968,14 @@ def _send_edit_notification(msg: dict, business_connection: BusinessConnection) 
         dedup_key=edit_notification_dedup_key(msg),
     )
 
-def init_user_bot(user_id: int, chat_id: int, username: str, first_name: str):
+def _init_user_bot(
+    user_id: int,
+    chat_id: int,
+    username: str,
+    first_name: str,
+    *,
+    notify_owner: bool,
+):
     user, created = UserTg.objects.get_or_create(
         user_id=user_id,
         defaults={
@@ -948,7 +986,8 @@ def init_user_bot(user_id: int, chat_id: int, username: str, first_name: str):
     )
 
     if created:
-        tg_send_message(OWNER_CHAT_ID, f"New user: @{username or '-'} {first_name or ''} (id={user_id})")
+        if notify_owner:
+            tg_send_message(OWNER_CHAT_ID, _owner_start_notification(user))
     else:
         updated = False
         if user.chat_id != chat_id:
@@ -962,6 +1001,17 @@ def init_user_bot(user_id: int, chat_id: int, username: str, first_name: str):
             updated = True
         if updated:
             user.save(update_fields=["chat_id", "username", "first_name"])
+    return user, created
+
+
+def init_user_bot(user_id: int, chat_id: int, username: str, first_name: str):
+    user, _ = _init_user_bot(
+        user_id,
+        chat_id,
+        username,
+        first_name,
+        notify_owner=True,
+    )
     return user
 
 def isBusiness(data):
