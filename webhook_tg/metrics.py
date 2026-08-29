@@ -47,6 +47,8 @@ STARTED_USERS = "who_update_started_users"
 CONNECTION_CONVERSION = "who_update_connection_conversion_percent"
 EXPIRED_SUBSCRIPTIONS = "who_update_expired_subscriptions"
 ACTIVE_LIMITED_SUBSCRIPTIONS = "who_update_active_limited_subscriptions"
+SYSTEM_MEMORY_USED = "who_update_system_memory_used_percent"
+SYSTEM_MEMORY_AVAILABLE = "who_update_system_memory_available_bytes"
 
 COUNT_METRICS = {
     TELEGRAM_MESSAGES_SENT,
@@ -78,6 +80,8 @@ GAUGE_METRICS = {
     CONNECTION_CONVERSION,
     EXPIRED_SUBSCRIPTIONS,
     ACTIVE_LIMITED_SUBSCRIPTIONS,
+    SYSTEM_MEMORY_USED,
+    SYSTEM_MEMORY_AVAILABLE,
 }
 
 _last_heartbeat: dict[str, float] = {}

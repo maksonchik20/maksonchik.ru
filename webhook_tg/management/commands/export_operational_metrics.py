@@ -13,7 +13,7 @@ from webhook_tg.metrics import (
     closed_bucket_cutoff,
     record_heartbeat,
 )
-from webhook_tg.metric_snapshots import collect_database_gauges
+from webhook_tg.metric_snapshots import collect_database_gauges, collect_system_gauges
 from webhook_tg.models import OperationalMetricBucket
 
 METADATA_TOKEN_URL = (
@@ -44,6 +44,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         collect_database_gauges()
+        collect_system_gauges()
         record_heartbeat("metrics_exporter", min_interval_seconds=0)
         buckets = list(
             OperationalMetricBucket.objects.filter(

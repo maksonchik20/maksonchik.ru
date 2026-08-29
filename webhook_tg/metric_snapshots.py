@@ -16,9 +16,12 @@ from .metrics import (
     OUTBOX_OLDEST_AGE,
     OUTBOX_SIZE,
     STARTED_USERS,
+    SYSTEM_MEMORY_AVAILABLE,
+    SYSTEM_MEMORY_USED,
     set_gauge,
 )
 from .models import TelegramIncomingUpdate, TelegramOutbox, UserTg
+from .resource_metrics import collect_resource_snapshot
 
 
 def _age_seconds(created_at, now) -> float:
@@ -68,3 +71,9 @@ def collect_database_gauges() -> None:
             access_expires_at__gt=now,
         ).count(),
     )
+
+
+def collect_system_gauges() -> None:
+    snapshot = collect_resource_snapshot(cpu_interval=0)
+    set_gauge(SYSTEM_MEMORY_USED, snapshot.memory_used_pct)
+    set_gauge(SYSTEM_MEMORY_AVAILABLE, snapshot.memory_available)
