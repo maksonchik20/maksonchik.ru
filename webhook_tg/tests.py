@@ -4,7 +4,13 @@ from unittest.mock import patch
 from datetime import timedelta
 import json
 
-from .config import START_PHOTO_ID, START_TEXT
+from .config import (
+    DEMO_CALLBACK_DATA,
+    DEMO_VIDEOS,
+    START_PHOTO_ID,
+    START_REPLY_MARKUP,
+    START_TEXT,
+)
 from .models import Message, FileType, TelegramIncomingUpdate, UserTg
 from .outbox import process_outbox
 from .incoming import claim_next_update, process_claimed_update
@@ -183,6 +189,7 @@ class WebhookStartTests(NoTelegramApiTestCase):
         self.assertEqual(body.get("photo"), START_PHOTO_ID, "В json должен передаваться photo = START_PHOTO_ID")
         self.assertEqual(body.get("parse_mode"), "HTML", "В json должен быть parse_mode HTML")
         self.assertTrue(body.get("disable_web_page_preview"), "В json должен быть disable_web_page_preview True")
+        self.assertEqual(body.get("reply_markup"), START_REPLY_MARKUP)
 
         user = UserTg.objects.get(user_id=700001)
         self.assertFalse(user.business_is_connected)
@@ -311,6 +318,45 @@ class WebhookStartTests(NoTelegramApiTestCase):
         self.assertFalse(
             self.mock_post.called,
             "requests.post не должен вызываться при сообщении не /start",
+        )
+
+    def test_demo_button_sends_three_videos_by_file_id(self):
+        payload = {
+            "update_id": 104,
+            "callback_query": {
+                "id": "demo_callback_1",
+                "from": {"id": 700001, "username": "testuser"},
+                "message": {"chat": {"id": 600001, "type": "private"}},
+                "data": DEMO_CALLBACK_DATA,
+            },
+        }
+
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        video_bodies = [
+            get_post_call_args(call)[1]
+            for call in self.mock_post.call_args_list
+            if "sendVideo" in str(get_post_call_args(call)[0])
+        ]
+        self.assertEqual(len(video_bodies), 3)
+        self.assertEqual(
+            [body["video"] for body in video_bodies],
+            [video["file_id"] for video in DEMO_VIDEOS],
+        )
+        self.assertEqual(
+            [body["caption"] for body in video_bodies],
+            [video["caption"] for video in DEMO_VIDEOS],
+        )
+        self.assertTrue(
+            any(
+                "answerCallbackQuery" in str(get_post_call_args(call)[0])
+                for call in self.mock_post.call_args_list
+            )
         )
 
 

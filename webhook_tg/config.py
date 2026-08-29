@@ -18,6 +18,41 @@ START_TEXT = (
     "инструкцию на картинке сверху.\n\n"
     f"<b>@who_update_bot</b>"
 )
+DEMO_CALLBACK_DATA = "who_update_demo"
+START_REPLY_MARKUP = {
+    "inline_keyboard": [
+        [
+            {
+                "text": "🎬 Демонстрация работы бота",
+                "callback_data": DEMO_CALLBACK_DATA,
+            }
+        ]
+    ]
+}
+DEMO_VIDEO_CAPTIONS = (
+    (
+            "<b>1. Сохранение скрытого медиа</b>\n\n"
+            "Показываем, как WhoUpdate сохраняет одноразовое фото или видео: "
+            "достаточно ответить на сообщение, не открывая медиа."
+    ),
+    (
+            "<b>2. Изменение сообщения</b>\n\n"
+            "WhoUpdate замечает редактирование и присылает исходный текст сообщения."
+    ),
+    (
+            "<b>3. Удаление сообщения</b>\n\n"
+            "После удаления WhoUpdate отправляет сохранённую копию сообщения или файла."
+    ),
+)
+try:
+    from .demo_media_local import DEMO_VIDEO_FILE_IDS
+except ImportError:
+    DEMO_VIDEO_FILE_IDS = ()
+
+DEMO_VIDEOS = tuple(
+    {"file_id": file_id, "caption": caption}
+    for file_id, caption in zip(DEMO_VIDEO_FILE_IDS, DEMO_VIDEO_CAPTIONS)
+)
 BOT_ACTIVATED_TEXT = (
     "<b>WhoUpdate успешно активирован</b>\n\n"
     "Бот подключён к автоматизации чатов и готов к работе.\n"

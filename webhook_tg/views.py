@@ -32,6 +32,7 @@ from .telegram import (
     send_photo_bytes,
     send_video_bytes,
     download_telegram_file_bytes,
+    answer_callback_query,
     _guess_media_filename,
 )
 from .metrics import (
@@ -45,6 +46,9 @@ from .metrics import (
 from .config import (
     START_PHOTO_ID,
     START_TEXT,
+    START_REPLY_MARKUP,
+    DEMO_CALLBACK_DATA,
+    DEMO_VIDEOS,
     BOT_ACTIVATED_TEXT,
     BOT_DEACTIVATED_TEXT,
     OWNER_CHAT_ID,
@@ -140,6 +144,8 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
 
     callback = data.get("callback_query")
     if callback:
+        if _handle_demo_callback(callback):
+            return
         handle_mute_callback(callback)
         return
 
@@ -301,8 +307,38 @@ def _webhook_tg_response(request: HttpRequest):
 
 
 def send_meeting_message(chat_id):
-    if not send_photo(chat_id=chat_id, photo_id=START_PHOTO_ID, caption=START_TEXT):
+    if not send_photo(
+        chat_id=chat_id,
+        photo_id=START_PHOTO_ID,
+        caption=START_TEXT,
+        reply_markup=START_REPLY_MARKUP,
+    ):
         raise RuntimeError(f"Failed to send /start photo to chat_id={chat_id}")
+
+
+def _handle_demo_callback(callback: dict) -> bool:
+    if callback.get("data") != DEMO_CALLBACK_DATA:
+        return False
+
+    callback_id = callback.get("id")
+    chat_id = ((callback.get("message") or {}).get("chat") or {}).get("id")
+    answer_callback_query(callback_id, "Отправляю демонстрацию")
+    if not chat_id:
+        return True
+    if len(DEMO_VIDEOS) != 3:
+        tg_send_message(chat_id, "Демонстрация временно недоступна. Попробуйте позже.")
+        return True
+
+    failed = False
+    for video in DEMO_VIDEOS:
+        if not send_video(chat_id, video["file_id"], caption=video["caption"], timeout=15):
+            failed = True
+    if failed:
+        tg_send_message(
+            chat_id,
+            "Не удалось отправить часть демонстрации. Попробуйте нажать кнопку ещё раз.",
+        )
+    return True
 
 
 def _referral_owner_section(bot_user: UserTg) -> str:

@@ -385,11 +385,19 @@ def _media_payload(caption: str) -> dict:
     return payload
 
 
-def send_photo(chat_id, photo_id: str, caption: str = "", timeout: int = 5) -> bool:
+def send_photo(
+    chat_id,
+    photo_id: str,
+    caption: str = "",
+    timeout: int = 5,
+    reply_markup: dict | None = None,
+) -> bool:
     """Отправка фото по file_id. caption — подпись к фото (HTML)."""
     if not chat_id or not photo_id:
         return False
     payload = {"photo": photo_id, **_media_payload(caption)}
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
     ok, _ = dispatch_telegram_request("sendPhoto", chat_id, payload, timeout=timeout)
     return ok
 
