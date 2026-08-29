@@ -368,6 +368,93 @@ class WebhookStartTests(NoTelegramApiTestCase):
             )
         )
 
+    def test_history_without_username_sends_usage_hint(self):
+        payload = make_start_payload(update_id=105)
+        payload["message"]["text"] = "/history"
+
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        messages = [
+            get_post_call_args(call)[1].get("text", "")
+            for call in self.mock_post.call_args_list
+            if "sendMessage" in str(get_post_call_args(call)[0])
+        ]
+        self.assertTrue(any("Укажите username" in message for message in messages))
+        self.assertTrue(any("/history @username" in message for message in messages))
+
+    def test_history_sends_only_current_owners_messages_as_txt(self):
+        UserTg.objects.create(
+            user_id=700001,
+            chat_id=600001,
+            username="testuser",
+            first_name="Test",
+            business_connection_id="owner_conn",
+        )
+        Message.objects.create(
+            business_connection_id="owner_conn",
+            message_id=201,
+            chat_id=301,
+            username_from="Target_User",
+            first_name="Target",
+            text="Первое сообщение",
+        )
+        Message.objects.create(
+            business_connection_id="owner_conn",
+            message_id=202,
+            chat_id=301,
+            username_from="target_user",
+            first_name="Target",
+            text="Второе сообщение",
+            file_id="document-file-id",
+            file_type=FileType.DOCUMENT,
+        )
+        Message.objects.create(
+            business_connection_id="another_conn",
+            message_id=203,
+            chat_id=302,
+            username_from="target_user",
+            text="Чужая переписка",
+        )
+        Message.objects.create(
+            business_connection_id="owner_conn",
+            message_id=204,
+            chat_id=303,
+            username_from="another_user",
+            text="Другой пользователь",
+        )
+        payload = make_start_payload(update_id=106)
+        payload["message"]["text"] = "/history @TARGET_USER"
+
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        document_calls = [
+            call
+            for call in self.mock_post.call_args_list
+            if "sendDocument" in str(get_post_call_args(call)[0])
+        ]
+        self.assertEqual(len(document_calls), 1)
+        call = document_calls[0]
+        filename, content, content_type = call.kwargs["files"]["document"]
+        self.assertEqual(filename, "history_target_user.txt")
+        self.assertEqual(content_type, "text/plain; charset=utf-8")
+        archive = content.decode("utf-8-sig")
+        self.assertIn("Сообщений: 2", archive)
+        self.assertIn("Первое сообщение", archive)
+        self.assertIn("Второе сообщение", archive)
+        self.assertIn("[вложение: DOCUMENT]", archive)
+        self.assertNotIn("Чужая переписка", archive)
+        self.assertNotIn("Другой пользователь", archive)
+
 
 @override_settings(
     TELEGRAM_WEBHOOK_SYNC_PROCESSING=False,

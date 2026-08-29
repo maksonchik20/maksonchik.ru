@@ -8,6 +8,7 @@ COMMANDS = [
     {"command": "status", "description": "Срок доступа и тарифы"},
     {"command": "referral", "description": "Пригласить друга и получить 7 дней"},
     {"command": "subscribe", "description": "Продлить доступ"},
+    {"command": "history", "description": "История сообщений пользователя"},
     {"command": "mute", "description": "Удалять сообщения пользователя"},
     {"command": "mutelist", "description": "Список mute"},
     {"command": "unmute", "description": "Снять mute"},

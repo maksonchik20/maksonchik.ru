@@ -20,6 +20,7 @@ from .mute import (
     is_username_muted,
     maybe_delete_muted_business_message,
 )
+from .history import handle_history_command
 import html
 from .telegram import (
     tg_send_message,
@@ -238,6 +239,9 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
     elif command in ("/referral", "/ref") and is_message_to_bot(data):
         bot_user = init_user_bot(from_user_id, chat_id, username, first_name)
         tg_send_message(chat_id, referral_text(bot_user))
+    elif command == "/history" and is_message_to_bot(data):
+        bot_user = init_user_bot(from_user_id, chat_id, username, first_name)
+        handle_history_command(chat_id, bot_user, text)
     elif is_message_to_bot(data) and handle_mute_commands(chat_id, from_user_id, text):
         pass
     elif is_message_to_bot(data) and _handle_events_command(chat_id, text):

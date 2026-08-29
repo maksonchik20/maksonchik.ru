@@ -13,7 +13,9 @@ START_TEXT = (
     "бот пришлёт копию.\n"
     "• <code>/mute @username</code> — удалять его\n"
     "сообщения у обоих (срок и уведомления\n"
-    "выбираются кнопками).\n\n"
+    "выбираются кнопками).\n"
+    "• <code>/history @username</code> — получить\n"
+    "историю сообщений файлом.\n\n"
     "Как подключить бота — смотрите\n"
     "инструкцию на картинке сверху.\n\n"
     f"<b>@who_update_bot</b>"
@@ -63,6 +65,7 @@ BOT_ACTIVATED_TEXT = (
     "и одноразовых медиа в разрешённых чатах.\n\n"
     "Полезные команды:\n"
     "• <code>/mute @username</code> — глушить собеседника\n"
+    "• <code>/history @username</code> — история сообщений\n"
     "• <code>/mutelist</code> — список mute\n"
     "• <code>/unmute @username</code> — снять mute"
 )
