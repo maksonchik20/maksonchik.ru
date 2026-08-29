@@ -235,6 +235,8 @@
     stroke-linecap: round;
     stroke-linejoin: round;
   }
+  .feature-card--wide { grid-column: 1 / -1; min-height: auto; }
+  .feature-card--wide p { max-width: 72ch; }
   .feature-card p {
     margin: 0;
     color: var(--muted);
@@ -504,6 +506,13 @@
         </span>
         <h3>Без доступа к аккаунту</h3>
         <p>Не просим номер, код из SMS или облачный пароль. Подключение — штатное, прямо в настройках Telegram.</p>
+      </article>
+      <article class="feature-card feature-card--wide holo-card" data-reveal data-reveal-delay="7">
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4Z"/><path d="M7 20a2 2 0 0 1 0-4h11M9 8h5M9 11h7"/><path d="M18 8h2v8h-2"/></svg>
+        </span>
+        <h3>История после удаления переписки</h3>
+        <p>Если собеседник удалит переписку целиком, сообщения, сохранённые с момента подключения WhoUpdate, останутся в архиве. Отправьте <code>/history @username</code> — бот пришлёт TXT-файл со всей доступной историей этого пользователя.</p>
       </article>
     </div>
   </section>
