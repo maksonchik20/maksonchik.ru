@@ -25,6 +25,7 @@ class SeoPagesTest(SimpleTestCase):
             html=True,
         )
         self.assertContains(response, "Посмотреть демонстрацию", count=3)
+        self.assertContains(response, 'class="feature-icon"', count=6)
         self.assertContains(response, 'preload="none"')
         self.assertContains(response, ".demo-dialog, .demo-dialog * { cursor: auto; }")
         self.assertContains(response, "/who-update-demo-media/deleted-message.mp4")

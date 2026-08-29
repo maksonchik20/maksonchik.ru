@@ -212,6 +212,29 @@
     margin: 0 0 10px;
     letter-spacing: -0.02em;
   }
+  .feature-icon {
+    width: 50px;
+    height: 50px;
+    display: grid;
+    place-items: center;
+    margin-bottom: 20px;
+    border: 1px solid var(--bot-accent-border);
+    border-radius: 15px;
+    color: var(--bot-accent);
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255,255,255,.09), transparent 55%),
+      var(--bot-accent-dim);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 10px 30px rgba(0,245,255,.05);
+  }
+  .feature-icon svg {
+    width: 25px;
+    height: 25px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
   .feature-card p {
     margin: 0;
     color: var(--muted);
@@ -437,29 +460,47 @@
     </div>
     <div class="feature-grid">
       <article class="feature-card holo-card" data-reveal data-reveal-delay="1">
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
+        </span>
         <h3>Удаления сразу</h3>
         <p>Когда сообщение исчезает из чата, бот присылает уведомление с сохранённым текстом — если успел его записать.</p>
         <button class="demo-trigger" type="button" data-demo-video="/who-update-demo-media/deleted-message.mp4" data-demo-title="Удаление сообщения" data-demo-description="Собеседник удаляет сообщение, а WhoUpdate присылает сохранённую копию.">Посмотреть демонстрацию</button>
       </article>
       <article class="feature-card holo-card" data-reveal data-reveal-delay="2">
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4M4 12V5a1 1 0 0 1 1-1h6M12 20h7a1 1 0 0 0 1-1v-6"/></svg>
+        </span>
         <h3>Правки до и после</h3>
         <p>Видите старую и новую версию. Удобно ловить «лёгкие» правки смысла, цифр и договорённостей.</p>
         <button class="demo-trigger" type="button" data-demo-video="/who-update-demo-media/edited-message.mp4" data-demo-title="Изменение сообщения" data-demo-description="WhoUpdate замечает редактирование и показывает исходный текст сообщения.">Посмотреть демонстрацию</button>
       </article>
       <article class="feature-card holo-card" data-reveal data-reveal-delay="3">
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9" r="1.5"/><path d="m5 18 5-5 3 3 2-2 4 4"/><path d="m15.5 7.5 3 1.8-3 1.7V7.5Z"/></svg>
+        </span>
         <h3>Медиа сразу в Telegram</h3>
         <p>Фото, видео, голос, документы и стикеры бот присылает вам в чат — открываете прямо в Telegram.</p>
       </article>
       <article class="feature-card holo-card" data-reveal data-reveal-delay="4">
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 3h6M12 3v2"/><path d="m5.5 6.5-2-2M18.5 6.5l2-2"/></svg>
+        </span>
         <h3>Одноразовые фото и видео</h3>
         <p>Не открывайте view-once. Ответьте на сообщение любым текстом (reply) — WhoUpdate пришлёт копию в чат с ботом.</p>
         <button class="demo-trigger" type="button" data-demo-video="/who-update-demo-media/hidden-media.mp4" data-demo-title="Сохранение скрытого медиа" data-demo-description="Достаточно ответить на одноразовое фото или видео, не открывая его, — бот пришлёт копию.">Посмотреть демонстрацию</button>
       </article>
       <article class="feature-card holo-card" data-reveal data-reveal-delay="5">
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.6 2.8 8 7 10 4.2-2 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+        </span>
         <h3>Только ваши чаты</h3>
         <p>Бот работает с личными диалогами через автоматизацию Telegram. Чужие переписки читать нельзя — и не нужно.</p>
       </article>
       <article class="feature-card holo-card" data-reveal data-reveal-delay="6">
+        <span class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><path d="M12 12h9M18 12v3M15 12v2"/><path d="M4 4 20 20"/></svg>
+        </span>
         <h3>Без доступа к аккаунту</h3>
         <p>Не просим номер, код из SMS или облачный пароль. Подключение — штатное, прямо в настройках Telegram.</p>
       </article>
