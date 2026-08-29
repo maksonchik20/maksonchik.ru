@@ -26,7 +26,8 @@ PLAN_CONFIG = {
 
 
 def is_subscription_rollout_user(bot_user: UserTg) -> bool:
-    return int(bot_user.user_id) == OWNER_TELEGRAM_ID
+    """Подписочная модель включена для всех пользователей WhoUpdate."""
+    return True
 
 
 def plan_config_for_user(bot_user: UserTg, plan: str) -> dict | None:
@@ -41,7 +42,7 @@ def _rubles(amount: Decimal) -> str:
 
 
 def apply_rollout_policy(bot_user: UserTg) -> bool:
-    """Ограниченный доступ включён только владельцу до общего запуска."""
+    """Отключить устаревший бессрочный доступ для любого пользователя."""
     if not is_subscription_rollout_user(bot_user) or not bot_user.access_unlimited:
         return False
     bot_user.access_unlimited = False

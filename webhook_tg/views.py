@@ -61,6 +61,7 @@ from .subscriptions import (
     access_status_text,
     apply_rollout_policy,
     business_access_allowed,
+    expired_access_text,
     grant_referral_reward,
     referral_text,
     register_referral,
@@ -194,6 +195,8 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
         start_payload = start_parts[1] if len(start_parts) > 1 else ""
         register_referral(bot_user, start_payload)
         now = timezone.now()
+        start_trial_if_needed(bot_user, at=now)
+        bot_user.refresh_from_db()
         bot_user.last_start_at = now
         bot_user.connection_reminder_sent_at = None
         bot_user.connection_reminder_at = (
@@ -206,7 +209,14 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
                 "connection_reminder_sent_at",
             ]
         )
-        send_meeting_message(chat_id)
+        if bot_user.has_active_access(now):
+            send_meeting_message(chat_id)
+        else:
+            tg_send_message(
+                chat_id,
+                expired_access_text(bot_user),
+                reply_markup=subscription_keyboard(bot_user),
+            )
     elif command in ("/status", "/subscription", "/subscribe") and is_message_to_bot(data):
         bot_user = init_user_bot(from_user_id, chat_id, username, first_name)
         apply_rollout_policy(bot_user)

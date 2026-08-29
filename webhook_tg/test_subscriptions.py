@@ -40,12 +40,21 @@ class WhoUpdateAccessTests(TestCase):
             message,
         )
 
-    def test_rollout_does_not_limit_regular_user(self):
+    def test_rollout_limits_regular_user(self):
         user = UserTg.objects.create(user_id=100, chat_id=100)
-        self.assertFalse(apply_rollout_policy(user))
+        self.assertTrue(apply_rollout_policy(user))
         user.refresh_from_db()
-        self.assertTrue(user.access_unlimited)
-        self.assertTrue(user.has_active_access())
+        self.assertFalse(user.access_unlimited)
+        self.assertFalse(user.has_active_access())
+
+    def test_regular_user_gets_fourteen_day_trial(self):
+        user = UserTg.objects.create(user_id=100, chat_id=100)
+        before = timezone.now()
+        self.assertTrue(start_trial_if_needed(user, at=before))
+        user.refresh_from_db()
+        self.assertFalse(user.access_unlimited)
+        self.assertEqual(user.trial_started_at, before)
+        self.assertEqual(user.access_expires_at, before + timedelta(days=14))
 
     def test_owner_gets_fourteen_day_trial(self):
         user = UserTg.objects.create(user_id=OWNER_TELEGRAM_ID, chat_id=OWNER_TELEGRAM_ID)
