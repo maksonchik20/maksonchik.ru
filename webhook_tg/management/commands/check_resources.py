@@ -2,9 +2,13 @@ import json
 import os
 import time
 import datetime
+import uuid
 
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
+from webhook_tg.models import TelegramOutbox
+from webhook_tg.outbox import enqueue_outbox
 from webhook_tg.resource_metrics import collect_resource_snapshot, human_gb, resource_report_text
 from webhook_tg.telegram import tg_send_message
 from env import OWNER_CHAT_ID
@@ -19,6 +23,11 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--report", action="store_true", help="Always send current metrics")
+        parser.add_argument(
+            "--daily",
+            action="store_true",
+            help="Queue one idempotent daily report for the current Moscow date",
+        )
         parser.add_argument("--alert", action="store_true", help="Send only if limits exceeded")
         parser.add_argument("--disk", default="/", help="Disk mountpoint to check, default '/'")
 
@@ -55,11 +64,22 @@ class Command(BaseCommand):
         host = "maksonchik.ru"
 
         if mode_report:
-            tg_send_message(
-                OWNER_CHAT_ID,
-                resource_report_text(snapshot, title="📊 Ежедневный отчёт"),
+            report_key = (
+                f"daily-resource-report:{timezone.localdate().isoformat()}"
+                if opts["daily"]
+                else f"manual-resource-report:{uuid.uuid4()}"
             )
-            self.stdout.write("report sent")
+            enqueue_outbox(
+                chat_id=OWNER_CHAT_ID,
+                method=TelegramOutbox.Method.SEND_MESSAGE,
+                idempotency_key=report_key,
+                payload={
+                    "text": resource_report_text(snapshot, title="📊 Ежедневный отчёт"),
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+            )
+            self.stdout.write(f"report queued: {report_key}")
             return
 
         # mode_alert
