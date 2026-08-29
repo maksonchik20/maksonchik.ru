@@ -19,13 +19,18 @@ START_TEXT = (
     f"<b>@who_update_bot</b>"
 )
 DEMO_CALLBACK_DATA = "who_update_demo"
+BUSINESS_SETTINGS_URL = "tg://settings/business"
 START_REPLY_MARKUP = {
     "inline_keyboard": [
         [
             {
                 "text": "🎬 Демонстрация работы бота",
                 "callback_data": DEMO_CALLBACK_DATA,
-            }
+            },
+            {
+                "text": "🟢 Подключить",
+                "url": BUSINESS_SETTINGS_URL,
+            },
         ]
     ]
 }

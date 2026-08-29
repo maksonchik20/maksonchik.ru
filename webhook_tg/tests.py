@@ -5,6 +5,7 @@ from datetime import timedelta
 import json
 
 from .config import (
+    BUSINESS_SETTINGS_URL,
     DEMO_CALLBACK_DATA,
     DEMO_VIDEOS,
     START_PHOTO_ID,
@@ -190,6 +191,10 @@ class WebhookStartTests(NoTelegramApiTestCase):
         self.assertEqual(body.get("parse_mode"), "HTML", "В json должен быть parse_mode HTML")
         self.assertTrue(body.get("disable_web_page_preview"), "В json должен быть disable_web_page_preview True")
         self.assertEqual(body.get("reply_markup"), START_REPLY_MARKUP)
+        start_buttons = body["reply_markup"]["inline_keyboard"][0]
+        self.assertEqual(len(start_buttons), 2)
+        self.assertEqual(start_buttons[1]["text"], "🟢 Подключить")
+        self.assertEqual(start_buttons[1]["url"], BUSINESS_SETTINGS_URL)
 
         user = UserTg.objects.get(user_id=700001)
         self.assertFalse(user.business_is_connected)
