@@ -34,20 +34,15 @@ START_REPLY_MARKUP = {
         ]
     ]
 }
-DEMO_VIDEO_CAPTIONS = (
-    (
-            "<b>1. Сохранение скрытого медиа</b>\n\n"
-            "Показываем, как WhoUpdate сохраняет одноразовое фото или видео: "
-            "достаточно ответить на сообщение, не открывая медиа."
-    ),
-    (
-            "<b>2. Изменение сообщения</b>\n\n"
-            "WhoUpdate замечает редактирование и присылает исходный текст сообщения."
-    ),
-    (
-            "<b>3. Удаление сообщения</b>\n\n"
-            "После удаления WhoUpdate отправляет сохранённую копию сообщения или файла."
-    ),
+DEMO_ALBUM_CAPTION = (
+    "<b>🎬 Демонстрация работы WhoUpdate</b>\n\n"
+    "<b>1. Сохранение скрытого медиа</b>\n"
+    "Бот сохраняет одноразовое фото или видео: достаточно ответить на сообщение, "
+    "не открывая медиа.\n\n"
+    "<b>2. Изменение сообщения</b>\n"
+    "WhoUpdate замечает редактирование и присылает исходный текст сообщения.\n\n"
+    "<b>3. Удаление сообщения</b>\n"
+    "После удаления WhoUpdate отправляет сохранённую копию сообщения или файла."
 )
 try:
     from .demo_media_local import DEMO_VIDEO_FILE_IDS
@@ -55,8 +50,11 @@ except ImportError:
     DEMO_VIDEO_FILE_IDS = ()
 
 DEMO_VIDEOS = tuple(
-    {"file_id": file_id, "caption": caption}
-    for file_id, caption in zip(DEMO_VIDEO_FILE_IDS, DEMO_VIDEO_CAPTIONS)
+    {
+        "file_id": file_id,
+        "caption": DEMO_ALBUM_CAPTION if index == 0 else "",
+    }
+    for index, file_id in enumerate(DEMO_VIDEO_FILE_IDS)
 )
 BOT_ACTIVATED_TEXT = (
     "<b>WhoUpdate успешно активирован</b>\n\n"

@@ -6,6 +6,7 @@ import json
 
 from .config import (
     BUSINESS_SETTINGS_URL,
+    DEMO_ALBUM_CAPTION,
     DEMO_CALLBACK_DATA,
     DEMO_VIDEOS,
     START_PHOTO_ID,
@@ -355,12 +356,11 @@ class WebhookStartTests(NoTelegramApiTestCase):
             [item["media"] for item in media],
             [video["file_id"] for video in DEMO_VIDEOS],
         )
-        self.assertEqual(
-            [item["caption"] for item in media],
-            [video["caption"] for video in DEMO_VIDEOS],
-        )
+        self.assertEqual(media[0]["caption"], DEMO_ALBUM_CAPTION)
+        self.assertEqual(media[0]["parse_mode"], "HTML")
+        self.assertNotIn("caption", media[1])
+        self.assertNotIn("caption", media[2])
         self.assertTrue(all(item["type"] == "video" for item in media))
-        self.assertTrue(all(item["parse_mode"] == "HTML" for item in media))
         self.assertTrue(
             any(
                 "answerCallbackQuery" in str(get_post_call_args(call)[0])
