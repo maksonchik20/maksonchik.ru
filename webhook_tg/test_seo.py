@@ -26,6 +26,7 @@ class SeoPagesTest(SimpleTestCase):
         )
         self.assertContains(response, "Посмотреть демонстрацию", count=3)
         self.assertContains(response, 'href="#features">Демонстрация работы</a>')
+        self.assertNotContains(response, 'href="#how">Как это работает</a>')
         self.assertContains(response, 'class="feature-icon"', count=7)
         self.assertContains(response, "Уведомления в реальном времени")
         self.assertContains(response, "WhoUpdate работает 24/7, даже когда вы офлайн")
