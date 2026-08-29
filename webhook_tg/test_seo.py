@@ -26,6 +26,7 @@ class SeoPagesTest(SimpleTestCase):
         )
         self.assertContains(response, "Посмотреть демонстрацию", count=3)
         self.assertContains(response, 'preload="none"')
+        self.assertContains(response, ".demo-dialog, .demo-dialog * { cursor: auto; }")
         self.assertContains(response, "/who-update-demo-media/deleted-message.mp4")
         self.assertContains(response, "/who-update-demo-media/edited-message.mp4")
         self.assertContains(response, "/who-update-demo-media/hidden-media.mp4")
