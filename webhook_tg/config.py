@@ -21,7 +21,7 @@ START_TEXT = (
     f"<b>@who_update_bot</b>"
 )
 DEMO_CALLBACK_DATA = "who_update_demo"
-BUSINESS_SETTINGS_URL = "tg://settings/business"
+PROFILE_SETTINGS_URL = "tg://settings"
 START_REPLY_MARKUP = {
     "inline_keyboard": [
         [
@@ -31,7 +31,7 @@ START_REPLY_MARKUP = {
             },
             {
                 "text": "🟢 Подключить",
-                "url": BUSINESS_SETTINGS_URL,
+                "url": PROFILE_SETTINGS_URL,
             },
         ]
     ]

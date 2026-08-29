@@ -5,10 +5,10 @@ from datetime import timedelta
 import json
 
 from .config import (
-    BUSINESS_SETTINGS_URL,
     DEMO_ALBUM_CAPTION,
     DEMO_CALLBACK_DATA,
     DEMO_VIDEOS,
+    PROFILE_SETTINGS_URL,
     START_PHOTO_ID,
     START_REPLY_MARKUP,
     START_TEXT,
@@ -195,7 +195,7 @@ class WebhookStartTests(NoTelegramApiTestCase):
         start_buttons = body["reply_markup"]["inline_keyboard"][0]
         self.assertEqual(len(start_buttons), 2)
         self.assertEqual(start_buttons[1]["text"], "🟢 Подключить")
-        self.assertEqual(start_buttons[1]["url"], BUSINESS_SETTINGS_URL)
+        self.assertEqual(start_buttons[1]["url"], PROFILE_SETTINGS_URL)
 
         user = UserTg.objects.get(user_id=700001)
         self.assertFalse(user.business_is_connected)
