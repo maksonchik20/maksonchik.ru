@@ -320,7 +320,7 @@ class WebhookStartTests(NoTelegramApiTestCase):
             "requests.post не должен вызываться при сообщении не /start",
         )
 
-    def test_demo_button_sends_three_videos_by_file_id(self):
+    def test_demo_button_sends_three_videos_as_one_media_group(self):
         payload = {
             "update_id": 104,
             "callback_query": {
@@ -338,20 +338,24 @@ class WebhookStartTests(NoTelegramApiTestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        video_bodies = [
+        group_bodies = [
             get_post_call_args(call)[1]
             for call in self.mock_post.call_args_list
-            if "sendVideo" in str(get_post_call_args(call)[0])
+            if "sendMediaGroup" in str(get_post_call_args(call)[0])
         ]
-        self.assertEqual(len(video_bodies), 3)
+        self.assertEqual(len(group_bodies), 1)
+        media = group_bodies[0]["media"]
+        self.assertEqual(len(media), 3)
         self.assertEqual(
-            [body["video"] for body in video_bodies],
+            [item["media"] for item in media],
             [video["file_id"] for video in DEMO_VIDEOS],
         )
         self.assertEqual(
-            [body["caption"] for body in video_bodies],
+            [item["caption"] for item in media],
             [video["caption"] for video in DEMO_VIDEOS],
         )
+        self.assertTrue(all(item["type"] == "video" for item in media))
+        self.assertTrue(all(item["parse_mode"] == "HTML" for item in media))
         self.assertTrue(
             any(
                 "answerCallbackQuery" in str(get_post_call_args(call)[0])

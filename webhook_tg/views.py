@@ -27,6 +27,7 @@ from .telegram import (
     send_photo,
     send_audio,
     send_video,
+    send_video_group,
     send_document,
     send_document_bytes,
     send_photo_bytes,
@@ -329,14 +330,10 @@ def _handle_demo_callback(callback: dict) -> bool:
         tg_send_message(chat_id, "Демонстрация временно недоступна. Попробуйте позже.")
         return True
 
-    failed = False
-    for video in DEMO_VIDEOS:
-        if not send_video(chat_id, video["file_id"], caption=video["caption"], timeout=15):
-            failed = True
-    if failed:
+    if not send_video_group(chat_id, list(DEMO_VIDEOS), timeout=30):
         tg_send_message(
             chat_id,
-            "Не удалось отправить часть демонстрации. Попробуйте нажать кнопку ещё раз.",
+            "Не удалось отправить демонстрацию. Попробуйте нажать кнопку ещё раз.",
         )
     return True
 

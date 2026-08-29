@@ -420,6 +420,29 @@ def send_video(chat_id, video_file_id: str, caption: str = "", timeout: int = 5)
     return ok
 
 
+def send_video_group(chat_id, videos: list[dict], timeout: int = 30) -> bool:
+    """Отправка 2–10 видео одним Telegram-альбомом по существующим file_id."""
+    if not chat_id or not 2 <= len(videos) <= 10:
+        return False
+    media = []
+    for video in videos:
+        file_id = video.get("file_id")
+        if not file_id:
+            return False
+        item = {"type": "video", "media": file_id}
+        caption = video.get("caption") or ""
+        if caption:
+            item.update({"caption": caption, "parse_mode": "HTML"})
+        media.append(item)
+    ok, _ = dispatch_telegram_request(
+        "sendMediaGroup",
+        chat_id,
+        {"media": media},
+        timeout=timeout,
+    )
+    return ok
+
+
 def send_document(chat_id, document_file_id: str, caption: str = "", timeout: int = 5) -> bool:
     """Отправка документа по file_id."""
     if not chat_id or not document_file_id:
