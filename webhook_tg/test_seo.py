@@ -29,6 +29,10 @@ class SeoPagesTest(SimpleTestCase):
         self.assertContains(response, "/who-update-demo-media/deleted-message.mp4")
         self.assertContains(response, "/who-update-demo-media/edited-message.mp4")
         self.assertContains(response, "/who-update-demo-media/hidden-media.mp4")
+        self.assertContains(
+            response,
+            "Telegram Premium не нужен · Подключение за минуту · Бесплатно",
+        )
 
     def test_who_update_alias_redirects_permanently(self):
         response = self.client.get("/who-update-bot/")
