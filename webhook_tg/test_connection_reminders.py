@@ -5,11 +5,17 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 
-from .config import CONNECTION_REMINDER_REPLY_MARKUP
+from .config import CONNECTION_REMINDER_REPLY_MARKUP, CONNECTION_REMINDER_TEXT
 from .models import UserTg
 
 
 class ConnectionReminderCommandTests(TestCase):
+    def test_reminder_uses_current_profile_connection_path(self):
+        self.assertIn("Профиль → Изменить", CONNECTION_REMINDER_TEXT)
+        self.assertIn("Профиль → Аккаунт", CONNECTION_REMINDER_TEXT)
+        self.assertIn("Автоматизация чатов", CONNECTION_REMINDER_TEXT)
+        self.assertNotIn("Telegram для бизнеса", CONNECTION_REMINDER_TEXT)
+
     @patch("webhook_tg.telegram.tg_send_message")
     def test_sends_expired_access_notification_once(self, send_message):
         send_message.return_value = True
