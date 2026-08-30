@@ -618,6 +618,51 @@ class BusinessConnectionActivatedTests(NoTelegramApiTestCase):
         self.assertIsNotNone(stored_user.business_connected_at)
         self.assertIsNone(stored_user.connection_reminder_at)
 
+    def test_duplicate_enabled_connection_does_not_send_notifications_again(self):
+        self.mock_post.return_value.json.return_value = {"ok": True, "result": True}
+        connected_at = timezone.now() - timedelta(hours=1)
+        UserTg.objects.create(
+            user_id=1394340083,
+            chat_id=1394340083,
+            username="already_connected",
+            first_name="Already",
+            business_connection_id="conn_duplicate_1",
+            business_is_connected=True,
+            business_connected_at=connected_at,
+        )
+        payload = {
+            "update_id": 94005,
+            "business_connection": {
+                "id": "conn_duplicate_1",
+                "user": {
+                    "id": 1394340083,
+                    "is_bot": False,
+                    "first_name": "Already",
+                    "username": "already_connected",
+                },
+                "user_chat_id": 1394340083,
+                "date": 1700000000,
+                "is_enabled": True,
+            },
+        }
+
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        texts = [
+            get_post_call_args(call)[1].get("text", "")
+            for call in self.mock_post.call_args_list
+            if get_post_call_args(call)[0] and "sendMessage" in str(get_post_call_args(call)[0])
+        ]
+        self.assertFalse(any("WhoUpdate успешно активирован" in text for text in texts))
+        self.assertFalse(any("WhoUpdate полностью подключён" in text for text in texts))
+        stored_user = UserTg.objects.get(user_id=1394340083)
+        self.assertEqual(stored_user.business_connected_at, connected_at)
+
     def test_disabled_connection_does_not_notify_owner_about_activation(self):
         self.mock_post.return_value.json.return_value = {"ok": True, "result": True}
         payload = {
@@ -652,6 +697,75 @@ class BusinessConnectionActivatedTests(NoTelegramApiTestCase):
             if get_post_call_args(c)[0] and "sendMessage" in str(get_post_call_args(c)[0])
         ]
         self.assertFalse(any("WhoUpdate полностью подключён" in text for text in texts))
+        self.assertFalse(any("WhoUpdate отключён" in text for text in texts))
+
+    def test_disabling_connected_user_notifies_owner(self):
+        from webhook_tg.config import OWNER_CHAT_ID
+
+        self.mock_post.return_value.json.return_value = {"ok": True, "result": True}
+        UserTg.objects.create(
+            user_id=812346,
+            chat_id=812346,
+            username="disconnected_owner",
+            first_name="Disconnected",
+            business_connection_id="conn_disabled_2",
+            business_is_connected=True,
+            business_connected_at=timezone.now() - timedelta(hours=1),
+        )
+        payload = {
+            "update_id": 94004,
+            "business_connection": {
+                "id": "conn_disabled_2",
+                "user": {
+                    "id": 812346,
+                    "first_name": "Disconnected",
+                    "last_name": "User",
+                    "username": "disconnected_owner",
+                },
+                "user_chat_id": 812346,
+                "is_enabled": False,
+            },
+        }
+
+        response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        stored_user = UserTg.objects.get(user_id=812346)
+        self.assertFalse(stored_user.business_is_connected)
+        owner_notifications = [
+            get_post_call_args(call)[1]
+            for call in self.mock_post.call_args_list
+            if "WhoUpdate отключён" in get_post_call_args(call)[1].get("text", "")
+            and str(get_post_call_args(call)[1].get("chat_id")) == str(OWNER_CHAT_ID)
+        ]
+        self.assertEqual(len(owner_notifications), 1)
+        owner_text = owner_notifications[0]["text"]
+        self.assertIn("Пользователь: Disconnected User", owner_text)
+        self.assertIn("Username: @disconnected_owner", owner_text)
+        self.assertIn("Telegram ID: <code>812346</code>", owner_text)
+        self.assertIn("Business connection ID: <code>conn_disabled_2</code>", owner_text)
+        disconnected_at = stored_user.business_disconnected_at
+
+        self.mock_post.reset_mock()
+        payload["update_id"] = 94006
+        repeated_response = self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(repeated_response.status_code, 200)
+        repeated_texts = [
+            get_post_call_args(call)[1].get("text", "")
+            for call in self.mock_post.call_args_list
+            if get_post_call_args(call)[0] and "sendMessage" in str(get_post_call_args(call)[0])
+        ]
+        self.assertFalse(any("WhoUpdate отключён" in text for text in repeated_texts))
+        stored_user.refresh_from_db()
+        self.assertEqual(stored_user.business_disconnected_at, disconnected_at)
 
     def test_referral_connection_notification_contains_inviter_username(self):
         self.mock_post.return_value.json.return_value = {"ok": True, "result": True}

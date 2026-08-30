@@ -403,6 +403,29 @@ def _owner_connection_notification(conn: dict, bot_user: UserTg) -> str:
     )
 
 
+def _owner_disconnection_notification(conn: dict, bot_user: UserTg) -> str:
+    user = conn.get("user") or {}
+    username = str(user.get("username") or "").strip().lstrip("@")
+    full_name = " ".join(
+        value.strip()
+        for value in (
+            str(user.get("first_name") or ""),
+            str(user.get("last_name") or ""),
+        )
+        if value.strip()
+    )
+    username_text = f"@{html.escape(username)}" if username else "—"
+    return (
+        "🔌 <b>WhoUpdate отключён</b>\n\n"
+        f"Пользователь: {html.escape(full_name) if full_name else '—'}\n"
+        f"Username: {username_text}\n"
+        f"Telegram ID: <code>{html.escape(str(user.get('id') or '—'))}</code>\n"
+        "Business connection ID: "
+        f"<code>{html.escape(str(conn.get('id') or '—'))}</code>"
+        f"{_referral_owner_section(bot_user)}"
+    )
+
+
 def _handle_business_connection_update(conn: dict) -> None:
     """Когда пользователь подключает/отключает бота в Автоматизации чатов."""
     user_chat_id = conn.get("user_chat_id")
@@ -420,49 +443,98 @@ def _handle_business_connection_update(conn: dict) -> None:
 
     now = timezone.now()
     was_connected = bot_user.business_is_connected
-    bot_user.business_connection_id = conn.get("id") or None
-    bot_user.business_is_connected = bool(conn.get("is_enabled"))
+    previous_connection_id = bot_user.business_connection_id
+    connection_id = conn.get("id") or None
+    is_enabled = bool(conn.get("is_enabled"))
+    is_new_connection = is_enabled and (
+        not was_connected or previous_connection_id != connection_id
+    )
+    is_disconnection = (
+        not is_enabled
+        and was_connected
+        and (not previous_connection_id or previous_connection_id == connection_id)
+    )
+
+    # Старое событие отключения от предыдущего connection_id не должно
+    # выключить уже переподключённого пользователя.
+    if not is_enabled and was_connected and not is_disconnection:
+        logger.info(
+            "Ignoring stale business disconnect user_chat_id=%s current=%s incoming=%s",
+            user_chat_id,
+            previous_connection_id,
+            connection_id,
+        )
+        return
+
+    bot_user.business_connection_id = connection_id
+    bot_user.business_is_connected = is_enabled
     bot_user.connection_reminder_at = None
 
-    if conn.get("is_enabled"):
+    if is_enabled:
         cancel_connection_reminders(bot_user)
-        if not was_connected:
+        if is_new_connection:
             observe_metric(BUSINESS_CONNECTION_EVENTS, 1, {"event": "connected"})
         start_trial_if_needed(bot_user, at=now)
-        bot_user.business_connected_at = now
+        update_fields = [
+            "business_connection_id",
+            "business_is_connected",
+            "connection_reminder_at",
+        ]
+        if is_new_connection:
+            bot_user.business_connected_at = now
+            update_fields.append("business_connected_at")
         bot_user.save(
-            update_fields=[
-                "business_connection_id",
-                "business_is_connected",
-                "business_connected_at",
-                "connection_reminder_at",
-            ]
+            update_fields=update_fields
         )
-        tg_send_message(user_chat_id, BOT_ACTIVATED_TEXT)
-        if not bot_user.access_unlimited:
-            bot_user.refresh_from_db()
-            tg_send_message(
+        if is_new_connection:
+            tg_send_message(user_chat_id, BOT_ACTIVATED_TEXT)
+            if not bot_user.access_unlimited:
+                bot_user.refresh_from_db()
+                tg_send_message(
+                    user_chat_id,
+                    access_status_text(bot_user),
+                    reply_markup=subscription_keyboard(bot_user),
+                )
+            grant_referral_reward(bot_user, at=now)
+            tg_send_message(OWNER_CHAT_ID, _owner_connection_notification(conn, bot_user))
+            print(f"business_connection enabled user_chat_id={user_chat_id}")
+        else:
+            logger.info(
+                "Skipping duplicate business connection user_chat_id=%s connection_id=%s",
                 user_chat_id,
-                access_status_text(bot_user),
-                reply_markup=subscription_keyboard(bot_user),
+                connection_id,
             )
-        grant_referral_reward(bot_user, at=now)
-        tg_send_message(OWNER_CHAT_ID, _owner_connection_notification(conn, bot_user))
-        print(f"business_connection enabled user_chat_id={user_chat_id}")
     else:
-        if was_connected:
+        if is_disconnection:
             observe_metric(BUSINESS_CONNECTION_EVENTS, 1, {"event": "disconnected"})
-        bot_user.business_disconnected_at = now
-        bot_user.save(
-            update_fields=[
-                "business_connection_id",
-                "business_is_connected",
-                "business_disconnected_at",
-                "connection_reminder_at",
-            ]
+        should_record_disconnected_at = (
+            is_disconnection or bot_user.business_disconnected_at is None
         )
-        tg_send_message(user_chat_id, BOT_DEACTIVATED_TEXT)
-        print(f"business_connection disabled user_chat_id={user_chat_id}")
+        if should_record_disconnected_at:
+            bot_user.business_disconnected_at = now
+        update_fields = [
+            "business_connection_id",
+            "business_is_connected",
+            "connection_reminder_at",
+        ]
+        if should_record_disconnected_at:
+            update_fields.append("business_disconnected_at")
+        bot_user.save(
+            update_fields=update_fields
+        )
+        if is_disconnection:
+            tg_send_message(user_chat_id, BOT_DEACTIVATED_TEXT)
+            tg_send_message(
+                OWNER_CHAT_ID,
+                _owner_disconnection_notification(conn, bot_user),
+            )
+            print(f"business_connection disabled user_chat_id={user_chat_id}")
+        else:
+            logger.info(
+                "Skipping duplicate business disconnect user_chat_id=%s connection_id=%s",
+                user_chat_id,
+                connection_id,
+            )
 
 
 def _handle_events_command(chat_id, text: str) -> bool:
