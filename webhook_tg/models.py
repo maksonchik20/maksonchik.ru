@@ -141,7 +141,10 @@ class UserTg(models.Model):
             return False
         at = at or timezone.now()
         self.trial_started_at = at
-        self.access_expires_at = at + timedelta(days=14 + self.referral_bonus_days)
+        trial_days = int(getattr(settings, "WHO_UPDATE_TRIAL_DAYS", 7))
+        self.access_expires_at = at + timedelta(
+            days=trial_days + self.referral_bonus_days
+        )
         self.access_expired_notified_at = None
         self.save(
             update_fields=[

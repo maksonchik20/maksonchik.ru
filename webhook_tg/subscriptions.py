@@ -13,7 +13,7 @@ from .models import UserTg
 
 
 OWNER_TELEGRAM_ID = 1394340082
-TRIAL_DAYS = 14
+TRIAL_DAYS = int(getattr(settings, "WHO_UPDATE_TRIAL_DAYS", 7))
 REFERRAL_REWARD_DAYS = 7
 CHECKOUT_SIGNING_SALT = "who-update-checkout-v1"
 BOT_USERNAME = "who_update_bot"

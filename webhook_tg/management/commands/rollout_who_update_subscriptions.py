@@ -7,7 +7,11 @@ from django.db import transaction
 from django.utils import timezone
 
 from webhook_tg.models import UserTg
-from webhook_tg.subscriptions import TRIAL_DAYS
+
+
+# Историческая миграция уже существующих пользователей проводилась с 14 днями.
+# Значение намеренно не связано с текущим триалом новых пользователей.
+LEGACY_ROLLOUT_TRIAL_DAYS = 14
 
 
 class Command(BaseCommand):
@@ -27,7 +31,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         now = timezone.now()
-        cutoff = now - timedelta(days=TRIAL_DAYS)
+        cutoff = now - timedelta(days=LEGACY_ROLLOUT_TRIAL_DAYS)
         users = list(UserTg.objects.order_by("id"))
         no_start = sum(user.last_start_at is None for user in users)
         old_start = sum(
@@ -52,7 +56,9 @@ class Command(BaseCommand):
                 user.access_unlimited = False
                 user.trial_started_at = start_at or now
                 user.access_expires_at = (
-                    now if expired_now else start_at + timedelta(days=TRIAL_DAYS)
+                    now
+                    if expired_now
+                    else start_at + timedelta(days=LEGACY_ROLLOUT_TRIAL_DAYS)
                 )
                 user.access_expired_notified_at = (
                     None if not expired_now or options["notify_expired"] else now
