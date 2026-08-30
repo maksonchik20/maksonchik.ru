@@ -272,6 +272,11 @@ class WhoUpdateMetrikaConversion(models.Model):
     )
     event_type = models.CharField(max_length=16, choices=EventType.choices)
     target = models.CharField(max_length=64)
+    counter_id = models.PositiveBigIntegerField(
+        verbose_name="Счётчик Метрики",
+        default=111680333,
+        db_index=True,
+    )
     occurred_at = models.DateTimeField(db_index=True)
     identifier_type = models.CharField(max_length=16, choices=IdentifierType.choices)
     identifier = models.CharField(max_length=255)

@@ -21,15 +21,13 @@ class Command(BaseCommand):
             raise CommandError("YANDEX_METRIKA_OAUTH_TOKEN is not configured")
         counter_id = int(getattr(settings, "YANDEX_METRIKA_COUNTER_ID", 111680333))
 
-        queued = sync_conversion_queue()
+        queued = sync_conversion_queue(counter_id=counter_id)
         reconciled = reconcile_submitted_conversions(
             token=token,
-            counter_id=counter_id,
             limit=options["status_limit"],
         )
         submitted = upload_pending_conversions(
             token=token,
-            counter_id=counter_id,
             limit=options["limit"],
         )
         self.stdout.write(

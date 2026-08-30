@@ -34,7 +34,12 @@ def _identifier_for(funnel: WhoUpdateOnboardingFunnel) -> tuple[str, str] | None
     return None
 
 
-def sync_conversion_queue(*, now=None, attribution_days: int = 20) -> int:
+def sync_conversion_queue(
+    *,
+    counter_id: int,
+    now=None,
+    attribution_days: int = 20,
+) -> int:
     """Добавляет новые события в очередь, включая накопленные до запуска задачи."""
     now = now or timezone.now()
     earliest = now - timedelta(days=attribution_days)
@@ -75,6 +80,7 @@ def sync_conversion_queue(*, now=None, attribution_days: int = 20) -> int:
                 event_type=event_type,
                 defaults={
                     "target": target,
+                    "counter_id": counter_id,
                     "occurred_at": getattr(funnel, timestamp_field),
                     "identifier_type": identifier_type,
                     "identifier": identifier_value,
@@ -129,7 +135,6 @@ def _short_error(exc: Exception) -> str:
 def upload_pending_conversions(
     *,
     token: str,
-    counter_id: int,
     limit: int = 500,
     now=None,
 ) -> int:
@@ -147,15 +152,15 @@ def upload_pending_conversions(
 
     grouped = defaultdict(list)
     for conversion in conversions:
-        grouped[conversion.identifier_type].append(conversion)
+        grouped[(conversion.counter_id, conversion.identifier_type)].append(conversion)
 
     submitted_count = 0
-    for identifier_type, batch in grouped.items():
+    for (stored_counter_id, identifier_type), batch in grouped.items():
         csv_kind, payload = _csv_payload(batch)
         comment = f"WhoUpdate{now:%Y%m%dT%H%M%S}{csv_kind}"
         try:
             response = METRIKA_SESSION.post(
-                UPLOAD_URL.format(counter_id=counter_id),
+                UPLOAD_URL.format(counter_id=stored_counter_id),
                 params={"type": "BASIC", "comment": comment},
                 headers={"Authorization": f"OAuth {token}"},
                 files={"file": (f"who-update-{csv_kind}.csv", payload, "text/csv")},
@@ -215,25 +220,27 @@ def upload_pending_conversions(
 def reconcile_submitted_conversions(
     *,
     token: str,
-    counter_id: int,
     limit: int = 50,
     now=None,
 ) -> int:
     now = now or timezone.now()
-    upload_ids = list(
+    uploads = list(
         WhoUpdateMetrikaConversion.objects.filter(
             status=WhoUpdateMetrikaConversion.Status.SUBMITTED,
             api_upload_id__isnull=False,
         )
-        .order_by("api_upload_id")
-        .values_list("api_upload_id", flat=True)
+        .order_by("counter_id", "api_upload_id")
+        .values_list("counter_id", "api_upload_id")
         .distinct()[:limit]
     )
     reconciled = 0
-    for upload_id in upload_ids:
+    for stored_counter_id, upload_id in uploads:
         try:
             response = METRIKA_SESSION.get(
-                UPLOAD_STATUS_URL.format(counter_id=counter_id, upload_id=upload_id),
+                UPLOAD_STATUS_URL.format(
+                    counter_id=stored_counter_id,
+                    upload_id=upload_id,
+                ),
                 headers={"Authorization": f"OAuth {token}"},
                 timeout=(3, 15),
             )
@@ -244,6 +251,7 @@ def reconcile_submitted_conversions(
 
         queryset = WhoUpdateMetrikaConversion.objects.filter(
             status=WhoUpdateMetrikaConversion.Status.SUBMITTED,
+            counter_id=stored_counter_id,
             api_upload_id=upload_id,
         )
         update = {"api_status": api_status}

@@ -14,6 +14,8 @@ from .models import WhoUpdateMetrikaConversion, WhoUpdateOnboardingFunnel
 
 
 class MetrikaOfflineConversionTests(TestCase):
+    counter_id = 112093587
+
     def setUp(self):
         self.now = timezone.now()
         self.funnel = WhoUpdateOnboardingFunnel.objects.create(
@@ -27,11 +29,15 @@ class MetrikaOfflineConversionTests(TestCase):
         )
 
     def test_sync_backfills_start_and_connection_and_prefers_yclid(self):
-        self.assertEqual(sync_conversion_queue(now=self.now), 2)
+        self.assertEqual(
+            sync_conversion_queue(counter_id=self.counter_id, now=self.now),
+            2,
+        )
         rows = list(
             WhoUpdateMetrikaConversion.objects.order_by("event_type").values(
                 "event_type",
                 "target",
+                "counter_id",
                 "identifier_type",
                 "identifier",
                 "status",
@@ -52,16 +58,20 @@ class MetrikaOfflineConversionTests(TestCase):
             all(
                 row["identifier_type"] == WhoUpdateMetrikaConversion.IdentifierType.YCLID
                 and row["identifier"] == "yclid-test-123"
+                and row["counter_id"] == self.counter_id
                 and row["status"] == WhoUpdateMetrikaConversion.Status.PENDING
                 for row in rows
             )
         )
-        self.assertEqual(sync_conversion_queue(now=self.now), 0)
+        self.assertEqual(
+            sync_conversion_queue(counter_id=self.counter_id, now=self.now),
+            0,
+        )
         self.assertEqual(WhoUpdateMetrikaConversion.objects.count(), 2)
 
     @patch("webhook_tg.metrika_offline.METRIKA_SESSION.post")
     def test_upload_sends_utf8_csv_and_marks_rows_submitted(self, post):
-        sync_conversion_queue(now=self.now)
+        sync_conversion_queue(counter_id=self.counter_id, now=self.now)
         response = Mock()
         response.raise_for_status.return_value = None
         response.json.return_value = {
@@ -71,13 +81,16 @@ class MetrikaOfflineConversionTests(TestCase):
 
         submitted = upload_pending_conversions(
             token="oauth-test",
-            counter_id=111680333,
             now=self.now,
         )
 
         self.assertEqual(submitted, 2)
         self.assertEqual(post.call_count, 1)
         request = post.call_args.kwargs
+        self.assertIn(
+            f"/{self.counter_id}/offline_conversions/upload",
+            post.call_args.args[0],
+        )
         self.assertEqual(request["headers"]["Authorization"], "OAuth oauth-test")
         filename, payload, mime = request["files"]["file"]
         csv_text = payload.decode("utf-8")
@@ -96,7 +109,7 @@ class MetrikaOfflineConversionTests(TestCase):
 
     @patch("webhook_tg.metrika_offline.METRIKA_SESSION.get")
     def test_reconcile_marks_processed_upload(self, get):
-        sync_conversion_queue(now=self.now)
+        sync_conversion_queue(counter_id=self.counter_id, now=self.now)
         WhoUpdateMetrikaConversion.objects.update(
             status=WhoUpdateMetrikaConversion.Status.SUBMITTED,
             api_upload_id=778899,
@@ -113,7 +126,6 @@ class MetrikaOfflineConversionTests(TestCase):
         self.assertEqual(
             reconcile_submitted_conversions(
                 token="oauth-test",
-                counter_id=111680333,
                 now=self.now,
             ),
             2,
@@ -128,13 +140,12 @@ class MetrikaOfflineConversionTests(TestCase):
 
     @patch("webhook_tg.metrika_offline.METRIKA_SESSION.post")
     def test_failed_request_remains_pending_with_backoff(self, post):
-        sync_conversion_queue(now=self.now)
+        sync_conversion_queue(counter_id=self.counter_id, now=self.now)
         post.side_effect = requests.Timeout("timeout")
 
         self.assertEqual(
             upload_pending_conversions(
                 token="oauth-test",
-                counter_id=111680333,
                 now=self.now,
             ),
             0,
