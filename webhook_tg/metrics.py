@@ -34,6 +34,7 @@ SQLITE_LOCK_ERRORS = "who_update_sqlite_lock_errors"
 POLL_ERRORS = "who_update_poll_errors"
 OUTBOX_EVENTS = "who_update_outbox_events"
 ONBOARDING_EVENTS = "who_update_onboarding_events"
+METRIKA_OFFLINE_EVENTS = "who_update_metrika_offline_events"
 BACKGROUND_JOB_HEARTBEAT = "who_update_background_job_heartbeat"
 
 OUTBOX_SIZE = "who_update_outbox_size"
@@ -53,6 +54,7 @@ SYSTEM_MEMORY_AVAILABLE = "who_update_system_memory_available_bytes"
 ONBOARDING_FUNNEL_TOTAL = "who_update_onboarding_funnel_total"
 ONBOARDING_MILESTONES_TOTAL = "who_update_onboarding_milestones_total"
 ONBOARDING_CONNECTIONS_TOTAL = "who_update_onboarding_connections_total"
+METRIKA_OFFLINE_QUEUE_TOTAL = "who_update_metrika_offline_queue_total"
 
 COUNT_METRICS = {
     TELEGRAM_MESSAGES_SENT,
@@ -69,6 +71,7 @@ COUNT_METRICS = {
     POLL_ERRORS,
     OUTBOX_EVENTS,
     ONBOARDING_EVENTS,
+    METRIKA_OFFLINE_EVENTS,
 }
 
 GAUGE_METRICS = {
@@ -90,6 +93,7 @@ GAUGE_METRICS = {
     ONBOARDING_FUNNEL_TOTAL,
     ONBOARDING_MILESTONES_TOTAL,
     ONBOARDING_CONNECTIONS_TOTAL,
+    METRIKA_OFFLINE_QUEUE_TOTAL,
 }
 
 _last_heartbeat: dict[str, float] = {}

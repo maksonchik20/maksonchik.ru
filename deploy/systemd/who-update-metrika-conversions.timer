@@ -1,0 +1,12 @@
+[Unit]
+Description=Upload WhoUpdate conversions to Yandex Metrica every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Persistent=true
+Unit=who-update-metrika-conversions.service
+
+[Install]
+WantedBy=timers.target

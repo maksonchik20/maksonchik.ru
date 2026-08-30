@@ -18,6 +18,7 @@ from .metrics import (
     ONBOARDING_CONNECTIONS_TOTAL,
     ONBOARDING_FUNNEL_TOTAL,
     ONBOARDING_MILESTONES_TOTAL,
+    METRIKA_OFFLINE_QUEUE_TOTAL,
     STARTED_USERS,
     SYSTEM_MEMORY_AVAILABLE,
     SYSTEM_MEMORY_USED,
@@ -28,6 +29,7 @@ from .models import (
     TelegramOutbox,
     UserTg,
     WhoUpdateOnboardingFunnel,
+    WhoUpdateMetrikaConversion,
 )
 from .resource_metrics import collect_resource_snapshot
 
@@ -134,6 +136,13 @@ def collect_database_gauges() -> None:
             ONBOARDING_CONNECTIONS_TOTAL,
             WhoUpdateOnboardingFunnel.objects.filter(connection_stage=stage).count(),
             {"stage": stage},
+        )
+
+    for status in WhoUpdateMetrikaConversion.Status.values:
+        set_gauge(
+            METRIKA_OFFLINE_QUEUE_TOTAL,
+            WhoUpdateMetrikaConversion.objects.filter(status=status).count(),
+            {"status": status},
         )
 
 

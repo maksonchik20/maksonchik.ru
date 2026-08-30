@@ -246,6 +246,71 @@ class WhoUpdateOnboardingFunnel(models.Model):
         return f"{self.tracking_code} → {user}"
 
 
+class WhoUpdateMetrikaConversion(models.Model):
+    """Надёжная очередь офлайн-конверсий для Яндекс Метрики."""
+
+    class EventType(models.TextChoices):
+        START = "start", "/start"
+        CONNECTED = "connected", "Полное подключение"
+
+    class IdentifierType(models.TextChoices):
+        YCLID = "yclid", "YCLID"
+        CLIENT_ID = "client_id", "ClientID"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Ожидает отправки"
+        SUBMITTED = "submitted", "Принято Метрикой"
+        PROCESSED = "processed", "Обработано Метрикой"
+        FAILED = "failed", "Ошибка сопоставления"
+
+    funnel = models.ForeignKey(
+        WhoUpdateOnboardingFunnel,
+        verbose_name="Воронка",
+        related_name="metrika_conversions",
+        on_delete=models.CASCADE,
+    )
+    event_type = models.CharField(max_length=16, choices=EventType.choices)
+    target = models.CharField(max_length=64)
+    occurred_at = models.DateTimeField(db_index=True)
+    identifier_type = models.CharField(max_length=16, choices=IdentifierType.choices)
+    identifier = models.CharField(max_length=255)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
+    api_upload_id = models.BigIntegerField(blank=True, null=True, db_index=True)
+    api_status = models.CharField(max_length=32, blank=True, default="")
+    last_error = models.TextField(blank=True, default="")
+    submitted_at = models.DateTimeField(blank=True, null=True)
+    processed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Офлайн-конверсия WhoUpdate"
+        verbose_name_plural = "Офлайн-конверсии WhoUpdate"
+        ordering = ("-created_at",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=("funnel", "event_type"),
+                name="wu_metrika_funnel_event_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("status", "next_attempt_at"),
+                name="wu_metrika_status_due",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.funnel.tracking_code}: {self.event_type} ({self.status})"
+
+
 class WhoUpdatePaymentOrder(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", "Ожидает оплаты"

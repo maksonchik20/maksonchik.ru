@@ -1,0 +1,14 @@
+[Unit]
+Description=Upload WhoUpdate offline conversions to Yandex Metrica
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/maksonchik/app
+Environment=DJANGO_SETTINGS_MODULE=maksonchik.settings
+Environment=MPLCONFIGDIR=/srv/maksonchik/.cache/matplotlib
+EnvironmentFile=/etc/maksonchik/metrika.env
+ExecStart=/srv/maksonchik/venv/bin/python manage.py upload_who_update_metrika_conversions --limit 500

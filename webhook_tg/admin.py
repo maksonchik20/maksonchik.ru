@@ -22,6 +22,7 @@ from .models import (
     MutedPeer,
     WhoUpdatePaymentOrder,
     WhoUpdateOnboardingFunnel,
+    WhoUpdateMetrikaConversion,
 )
 from .telegram import (
     get_telegram_file_path,
@@ -417,6 +418,50 @@ class WhoUpdateOnboardingFunnelAdmin(admin.ModelAdmin):
                 return "/start, открыл демонстрацию"
             return "/start, не подключился"
         return "Лендинг, без /start"
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(WhoUpdateMetrikaConversion)
+class WhoUpdateMetrikaConversionAdmin(admin.ModelAdmin):
+    list_display = (
+        "created_at",
+        "funnel",
+        "event_type",
+        "identifier_type",
+        "status",
+        "api_status",
+        "attempts",
+        "submitted_at",
+        "processed_at",
+    )
+    list_filter = ("status", "event_type", "identifier_type", "api_status")
+    search_fields = (
+        "funnel__tracking_code",
+        "funnel__user__username",
+        "funnel__user__user_id",
+        "api_upload_id",
+    )
+    ordering = ("-created_at",)
+    readonly_fields = (
+        "funnel",
+        "event_type",
+        "target",
+        "occurred_at",
+        "identifier_type",
+        "identifier",
+        "status",
+        "attempts",
+        "next_attempt_at",
+        "api_upload_id",
+        "api_status",
+        "last_error",
+        "submitted_at",
+        "processed_at",
+        "created_at",
+        "updated_at",
+    )
 
     def has_add_permission(self, request):
         return False

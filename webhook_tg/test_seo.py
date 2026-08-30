@@ -1,7 +1,7 @@
 import json
 import re
 
-from django.test import SimpleTestCase
+from django.test import TestCase
 
 
 def json_ld_blocks(response):
@@ -14,7 +14,7 @@ def json_ld_blocks(response):
     return [json.loads(block) for block in blocks]
 
 
-class SeoPagesTest(SimpleTestCase):
+class SeoPagesTest(TestCase):
     def test_who_update_uses_single_canonical_url(self):
         response = self.client.get("/bot/")
 
