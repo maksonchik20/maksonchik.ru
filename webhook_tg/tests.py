@@ -601,6 +601,12 @@ class BusinessConnectionActivatedTests(NoTelegramApiTestCase):
         ]
         self.assertEqual(len(activated), 1)
         self.assertEqual(int(activated[0].get("chat_id")), 1394340082)
+        user_texts = [
+            get_post_call_args(c)[1].get("text", "")
+            for c in send_calls
+            if str(get_post_call_args(c)[1].get("chat_id")) == "1394340082"
+        ]
+        self.assertFalse(any("Доступ к WhoUpdate" in text for text in user_texts))
 
         owner_notifications = [
             get_post_call_args(c)[1]

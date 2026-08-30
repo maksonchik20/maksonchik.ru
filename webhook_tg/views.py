@@ -513,13 +513,6 @@ def _handle_business_connection_update(conn: dict) -> None:
         if is_new_connection:
             record_connection(bot_user, connected_at=now)
             tg_send_message(user_chat_id, BOT_ACTIVATED_TEXT)
-            if not bot_user.access_unlimited:
-                bot_user.refresh_from_db()
-                tg_send_message(
-                    user_chat_id,
-                    access_status_text(bot_user),
-                    reply_markup=subscription_keyboard(bot_user),
-                )
             tg_send_message(OWNER_CHAT_ID, _owner_connection_notification(conn, bot_user))
             print(f"business_connection enabled user_chat_id={user_chat_id}")
         else:
