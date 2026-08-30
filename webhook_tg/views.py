@@ -475,6 +475,10 @@ def _handle_business_connection_update(conn: dict) -> None:
         if is_new_connection:
             observe_metric(BUSINESS_CONNECTION_EVENTS, 1, {"event": "connected"})
         start_trial_if_needed(bot_user, at=now)
+        # Начисление само по себе идемпотентно. Выполняем его до фиксации
+        # connected-состояния: если SQLite временно занят, повтор очереди
+        # сможет закончить подключение, не потеряв реферальный бонус.
+        grant_referral_reward(bot_user, at=now)
         update_fields = [
             "business_connection_id",
             "business_is_connected",
@@ -495,7 +499,6 @@ def _handle_business_connection_update(conn: dict) -> None:
                     access_status_text(bot_user),
                     reply_markup=subscription_keyboard(bot_user),
                 )
-            grant_referral_reward(bot_user, at=now)
             tg_send_message(OWNER_CHAT_ID, _owner_connection_notification(conn, bot_user))
             print(f"business_connection enabled user_chat_id={user_chat_id}")
         else:
