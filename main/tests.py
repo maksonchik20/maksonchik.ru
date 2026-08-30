@@ -176,5 +176,7 @@ class ReverseProxySecuritySettingsTest(TestCase):
         self.assertTrue(request.is_secure())
         self.assertIn("https://maksonchik.ru", settings.CSRF_TRUSTED_ORIGINS)
         self.assertIn("https://www.maksonchik.ru", settings.CSRF_TRUSTED_ORIGINS)
+        self.assertIn("https://who-update.ru", settings.CSRF_TRUSTED_ORIGINS)
+        self.assertIn("https://www.who-update.ru", settings.CSRF_TRUSTED_ORIGINS)
         self.assertTrue(settings.CSRF_COOKIE_SECURE)
         self.assertTrue(settings.SESSION_COOKIE_SECURE)

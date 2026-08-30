@@ -1,0 +1,68 @@
+{% extends "main/base.html" %}
+
+{% block page_title %}{% if document_type == "privacy" %}Политика обработки персональных данных — WhoUpdate{% else %}Условия использования и оплаты — WhoUpdate{% endif %}{% endblock %}
+{% block meta_description %}{% if document_type == "privacy" %}Политика обработки персональных данных сервиса WhoUpdate.{% else %}Условия использования, тарифы и порядок оплаты сервиса WhoUpdate.{% endif %}{% endblock %}
+{% block canonical_url %}{% if document_type == "privacy" %}https://who-update.ru/privacy/{% else %}https://who-update.ru/terms/{% endif %}{% endblock %}
+{% block og_url %}{% if document_type == "privacy" %}https://who-update.ru/privacy/{% else %}https://who-update.ru/terms/{% endif %}{% endblock %}
+{% block og_site_name %}WhoUpdate{% endblock %}
+
+{% block nav_brand %}<a class="nav-brand" href="{{ landing_url }}">WhoUpdate</a>{% endblock %}
+{% block nav_links %}
+<a href="{{ landing_url }}#features">Возможности</a>
+<a href="{{ landing_url }}#how">Подключение</a>
+<a href="https://t.me/who_update_bot" target="_blank" rel="noopener">Telegram-бот</a>
+{% endblock %}
+{% block nav_cta %}<a class="btn btn-primary" href="{{ landing_url }}">На главную</a>{% endblock %}
+
+{% block footer_inner %}
+<div>© WhoUpdate · who-update.ru</div>
+<div>
+  <a href="{{ privacy_url }}">Политика конфиденциальности</a> ·
+  <a href="{{ terms_url }}">Условия использования</a> ·
+  <a href="{{ main_site_url }}">maksonchik.ru</a>
+</div>
+{% endblock %}
+
+{% block favicons %}
+<link rel="icon" href="/who-update-favicon.svg" type="image/svg+xml">
+{% endblock %}
+
+{% block content %}
+<section class="section-block wrap legal-page">
+  <div class="eyebrow"><span class="eyebrow-dot"></span>WhoUpdate · Документы</div>
+  {% if document_type == "privacy" %}
+    <h1 class="section-title gradient-text">Политика обработки персональных данных</h1>
+    <div class="legal-copy holo-card">
+      <p>Оператор сервиса WhoUpdate — Максим Горшунов, ИНН 330640351621. Контактный email: <a href="mailto:{{ site.email }}">{{ site.email }}</a>.</p>
+      <h2>Какие данные обрабатываются</h2>
+      <p>Сервис может сохранять Telegram ID, имя и username пользователя, идентификатор подключения Telegram Business, сведения о статусе подписки, реферальной программе и оплатах. Для функций восстановления сохраняются сообщения и медиа, полученные ботом после его подключения. На сайте также обрабатываются технические данные Метрики, рекламные метки и идентификаторы переходов.</p>
+      <h2>Для чего нужны данные</h2>
+      <p>Данные используются для работы уведомлений об удалении и изменении сообщений, выдачи истории, управления доступом, оплаты, поддержки пользователей, предотвращения повторных операций и анализа качества подключения.</p>
+      <h2>Передача и хранение</h2>
+      <p>Для работы сервиса данные могут передаваться Telegram, ЮKassa и сервисам Яндекса, включая Метрику и облачную инфраструктуру. Данные не продаются. Доступ к ним ограничен владельцем сервиса и техническими процессами приложения.</p>
+      <h2>Удаление данных</h2>
+      <p>Запросить уточнение или удаление данных можно по адресу <a href="mailto:{{ site.email }}">{{ site.email }}</a>. В запросе укажите Telegram ID или username, чтобы можно было определить учётную запись.</p>
+      <p>Дата публикации: 30 августа 2026 года.</p>
+    </div>
+  {% else %}
+    <h1 class="section-title gradient-text">Условия использования и оплаты</h1>
+    <div class="legal-copy holo-card">
+      <p>WhoUpdate — Telegram-бот, который после подключения сохраняет доступную ему историю и уведомляет пользователя об удалениях, изменениях и одноразовых медиа.</p>
+      <h2>Доступ и тарифы</h2>
+      <p>Первичное подключение включает бесплатный пробный период 14 дней. После него доступ можно продлить: 1 месяц — 99 ₽, 3 месяца — 199 ₽, 1 год — 599 ₽. Оплата разовая, автоматического продления и регулярных списаний нет.</p>
+      <h2>Реферальная программа</h2>
+      <p>За каждого нового пользователя, который впервые полностью подключит WhoUpdate по персональной ссылке, пригласившему начисляется 7 дней доступа. Повторные подключения одного пользователя не дают повторный бонус.</p>
+      <h2>Оплата</h2>
+      <p>Платёж проводится через ЮKassa. Доступ продлевается после подтверждения успешной оплаты. При технической ошибке напишите на <a href="mailto:{{ site.email }}">{{ site.email }}</a>, указав Telegram ID и сведения о платеже.</p>
+      <h2>Ограничения</h2>
+      <p>Бот обрабатывает только данные, которые Telegram передаёт ему после подключения. Он не восстанавливает переписку за период до подключения и не предоставляет доступ к чужому аккаунту. Работа отдельных функций зависит от доступности Telegram API.</p>
+      <h2>Прекращение использования</h2>
+      <p>Пользователь может в любой момент отключить бота в настройках Telegram. Вопросы об оплате, возврате или удалении данных рассматриваются по обращению на <a href="mailto:{{ site.email }}">{{ site.email }}</a> в соответствии с применимым законодательством.</p>
+      <p>Исполнитель: Максим Горшунов, ИНН 330640351621. Дата публикации: 30 августа 2026 года.</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block lead_section %}{% endblock %}
+{% block lead_dialog %}{% endblock %}

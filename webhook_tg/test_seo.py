@@ -21,7 +21,7 @@ class SeoPagesTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(
             response,
-            '<link rel="canonical" href="https://maksonchik.ru/bot/">',
+            '<link rel="canonical" href="https://who-update.ru/">',
             html=True,
         )
         self.assertContains(response, "Посмотреть демонстрацию", count=3)
@@ -50,13 +50,62 @@ class SeoPagesTest(TestCase):
         self.assertEqual(response.status_code, 301)
         self.assertEqual(response["Location"], "/bot/")
 
-    def test_sitemap_contains_only_canonical_who_update_url(self):
+    def test_main_sitemap_no_longer_advertises_bot_subdirectory(self):
         response = self.client.get("/sitemap.xml")
         content = response.content.decode("utf-8")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("https://maksonchik.ru/bot/", content)
+        self.assertNotIn("https://maksonchik.ru/bot/", content)
         self.assertNotIn("https://maksonchik.ru/who-update-bot/", content)
+
+    def test_who_update_domain_has_own_root_and_metadata(self):
+        response = self.client.get("/", HTTP_HOST="who-update.ru")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            '<link rel="canonical" href="https://who-update.ru/">',
+            html=True,
+        )
+        self.assertContains(response, 'content="WhoUpdate"')
+        self.assertContains(response, "© WhoUpdate · who-update.ru")
+        self.assertNotContains(response, 'id="lead-form"')
+
+    def test_who_update_domain_redirects_legacy_bot_path_to_root(self):
+        response = self.client.get("/bot/", HTTP_HOST="who-update.ru")
+
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response["Location"], "/")
+
+    def test_who_update_domain_exposes_only_bot_surface(self):
+        self.assertEqual(
+            self.client.get("/admin/", HTTP_HOST="who-update.ru").status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get("/services/online-store/", HTTP_HOST="who-update.ru").status_code,
+            404,
+        )
+
+    def test_who_update_domain_has_own_sitemap_and_robots(self):
+        sitemap = self.client.get("/sitemap.xml", HTTP_HOST="who-update.ru")
+        robots = self.client.get("/robots.txt", HTTP_HOST="who-update.ru")
+
+        self.assertContains(sitemap, "https://who-update.ru/")
+        self.assertContains(sitemap, "https://who-update.ru/privacy/")
+        self.assertNotContains(sitemap, "maksonchik.ru")
+        self.assertContains(robots, "Sitemap: https://who-update.ru/sitemap.xml")
+        self.assertContains(robots, "Disallow: /bot/payment/")
+
+    def test_who_update_legal_pages_are_available(self):
+        privacy = self.client.get("/privacy/", HTTP_HOST="who-update.ru")
+        terms = self.client.get("/terms/", HTTP_HOST="who-update.ru")
+
+        self.assertContains(privacy, "Политика обработки персональных данных")
+        self.assertContains(privacy, "ИНН 330640351621")
+        self.assertContains(terms, "Условия использования и оплаты")
+        self.assertContains(terms, "1 месяц — 99 ₽")
+        self.assertContains(terms, "автоматического продления")
 
     def test_home_schema_uses_person_and_website(self):
         response = self.client.get("/")

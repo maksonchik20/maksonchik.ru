@@ -12,7 +12,7 @@
   <meta property="og:url" content="{% block og_url %}{{ site.url }}{% endblock %}">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="ru_RU">
-  <meta property="og:site_name" content="{{ site.name }}">
+  <meta property="og:site_name" content="{% block og_site_name %}{{ site.name }}{% endblock %}">
   <meta name="theme-color" content="{{ site.theme_color }}">
   {% include "main/includes/yandex_metrika.html" %}
   {% block favicons %}

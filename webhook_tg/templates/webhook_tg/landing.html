@@ -2,20 +2,21 @@
 
 {% block page_title %}Как посмотреть удалённые сообщения в Telegram (ТГ) — бот WhoUpdate{% endblock %}
 {% block meta_description %}Бот для просмотра удалённых и изменённых сообщений в Телеграм. WhoUpdate присылает копию при удалении и правке — без пароля и SMS. Подключите за минуту.{% endblock %}
-{% block canonical_url %}{{ canonical_url|default:"https://maksonchik.ru/bot/" }}{% endblock %}
+{% block canonical_url %}{{ canonical_url|default:"https://who-update.ru/" }}{% endblock %}
 {% block og_title %}Как посмотреть удалённые сообщения в Telegram (ТГ) — бот WhoUpdate{% endblock %}
 {% block og_description %}Бот для просмотра удалённых и изменённых сообщений в Телеграм. WhoUpdate присылает копию при удалении и правке — без пароля и SMS. Подключите за минуту.{% endblock %}
-{% block og_url %}{{ canonical_url|default:"https://maksonchik.ru/bot/" }}{% endblock %}
+{% block og_url %}{{ canonical_url|default:"https://who-update.ru/" }}{% endblock %}
+{% block og_site_name %}WhoUpdate{% endblock %}
 
 {% block nav_brand %}
-<a class="nav-brand" href="{{ landing_path|default:'/bot/' }}">WhoUpdate</a>
+<a class="nav-brand" href="{{ landing_url|default:'https://who-update.ru/' }}">WhoUpdate</a>
 {% endblock %}
 
 {% block nav_links %}
 <a class="hide-sm" href="#features" data-index="01">Возможности</a>
 <a class="hide-sm" href="#how" data-index="02">Подключение</a>
 <a class="hide-sm" href="#faq" data-index="03">FAQ</a>
-<a class="hide-sm" href="/">Главная</a>
+<a class="hide-sm" href="{{ main_site_url|default:'https://maksonchik.ru/' }}">Разработка</a>
 {% endblock %}
 
 {% block nav_cta %}
@@ -23,15 +24,15 @@
 {% endblock %}
 
 {% block footer_inner %}
-<div>© WhoUpdate · maksonchik.ru</div>
+<div>© WhoUpdate · who-update.ru</div>
 <div>
   <a href="{{ telegram_bot_url|default:'https://t.me/who_update_bot' }}" target="_blank" rel="noopener">Telegram-бот</a>
   ·
-  <a href="/">maksonchik.ru</a>
+  <a href="{{ main_site_url|default:'https://maksonchik.ru/' }}">maksonchik.ru</a>
   ·
-  <a href="{% url 'privacy' %}">Политика конфиденциальности</a>
+  <a href="{{ privacy_url|default:'https://who-update.ru/privacy/' }}">Политика конфиденциальности</a>
   ·
-  <a href="/admin/">Админка</a>
+  <a href="{{ terms_url|default:'https://who-update.ru/terms/' }}">Условия использования</a>
 </div>
 {% endblock %}
 
@@ -44,6 +45,22 @@
 {% endblock %}
 
 {% block extra_head %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "WhoUpdate",
+  "url": "https://who-update.ru/",
+  "applicationCategory": "CommunicationApplication",
+  "operatingSystem": "Telegram",
+  "description": "Telegram-бот для уведомлений об удалённых и изменённых сообщениях и сохранения одноразовых медиа.",
+  "offers": [
+    {"@type": "Offer", "price": "99", "priceCurrency": "RUB", "name": "Доступ на 1 месяц"},
+    {"@type": "Offer", "price": "199", "priceCurrency": "RUB", "name": "Доступ на 3 месяца"},
+    {"@type": "Offer", "price": "599", "priceCurrency": "RUB", "name": "Доступ на 1 год"}
+  ]
+}
+</script>
 <style>
   .bot-page {
     --bot-accent: var(--cyan);

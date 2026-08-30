@@ -6,7 +6,9 @@ from .blog_articles import BLOG_ARTICLE_LIST, BLOG_INDEX
 from .landing_pages import SERVICE_LANDING_SLUGS
 
 HOST = "https://maksonchik.ru"
+WHO_UPDATE_HOST = "https://who-update.ru"
 SITE_LASTMOD = "2026-08-23"
+WHO_UPDATE_LASTMOD = "2026-08-30"
 
 # Пути с 301 — в sitemap не включаем (см. main/urls.py).
 SITEMAP_EXCLUDE_PATHS = frozenset(
@@ -28,16 +30,31 @@ def sitemap_entries() -> list[tuple[str, str, str, str | None]]:
     entries.append((BLOG_INDEX["url"], "weekly", "0.85", SITE_LASTMOD))
     for article in BLOG_ARTICLE_LIST:
         entries.append((article["url"], "monthly", "0.8", SITE_LASTMOD))
-    entries.append((f"{HOST}/bot/", "weekly", "0.9", SITE_LASTMOD))
     return entries
 
 
+def who_update_sitemap_entries() -> list[tuple[str, str, str, str | None]]:
+    return [
+        (f"{WHO_UPDATE_HOST}/", "weekly", "1.0", WHO_UPDATE_LASTMOD),
+        (f"{WHO_UPDATE_HOST}/privacy/", "yearly", "0.2", WHO_UPDATE_LASTMOD),
+        (f"{WHO_UPDATE_HOST}/terms/", "yearly", "0.2", WHO_UPDATE_LASTMOD),
+    ]
+
+
 def render_sitemap_xml() -> str:
+    return _render_sitemap_xml(sitemap_entries())
+
+
+def render_who_update_sitemap_xml() -> str:
+    return _render_sitemap_xml(who_update_sitemap_entries())
+
+
+def _render_sitemap_xml(entries) -> str:
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     ]
-    for loc, freq, prio, lastmod in sitemap_entries():
+    for loc, freq, prio, lastmod in entries:
         lines += [
             "  <url>",
             f"    <loc>{loc}</loc>",

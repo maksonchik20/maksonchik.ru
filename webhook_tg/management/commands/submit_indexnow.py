@@ -2,17 +2,18 @@
 
 Примеры:
   python manage.py submit_indexnow
-  python manage.py submit_indexnow https://maksonchik.ru/bot/
+  python manage.py submit_indexnow https://who-update.ru/
 """
 
 from __future__ import annotations
 
 import json
+from urllib.parse import urlparse
 
 import requests
 from django.core.management.base import BaseCommand
 
-from webhook_tg.config import INDEXNOW_ENDPOINT, INDEXNOW_HOST, INDEXNOW_KEY
+from webhook_tg.config import INDEXNOW_ENDPOINT, INDEXNOW_KEY
 
 
 from main.sitemap_urls import sitemap_entries
@@ -27,13 +28,18 @@ class Command(BaseCommand):
         parser.add_argument(
             "urls",
             nargs="*",
-            help="URLs to submit (default: /, /bot/, /who-update-bot/)",
+            help="URLs to submit (default: maksonchik.ru sitemap URLs)",
         )
 
     def handle(self, *args, **options):
         urls = options["urls"] or DEFAULT_URLS
+        hosts = {urlparse(url).hostname for url in urls}
+        if None in hosts or len(hosts) != 1:
+            self.stderr.write(self.style.ERROR("All IndexNow URLs must use one host"))
+            return
+        host = hosts.pop()
         payload = {
-            "host": INDEXNOW_HOST,
+            "host": host,
             "key": INDEXNOW_KEY,
             "urlList": list(urls),
         }

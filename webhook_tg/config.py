@@ -89,9 +89,8 @@ CONNECTION_REMINDER_TEXT = (
 )
 OWNER_CHAT_ID = "1394340082"
 
-# IndexNow (Яндекс): ключ в корне https://maksonchik.ru/{INDEXNOW_KEY}.txt
+# IndexNow (Яндекс): один ключ доступен в корне обоих доменов.
 INDEXNOW_KEY = "qIXnCp99XqCIbkmFQv6mWaNweY2n1fio"
-INDEXNOW_HOST = "maksonchik.ru"
 INDEXNOW_ENDPOINT = "https://yandex.com/indexnow"
 
 # chat_id пользователей, которым разрешены команды /send_photo, /send_audio, /send_video

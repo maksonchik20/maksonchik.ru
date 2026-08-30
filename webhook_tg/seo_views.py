@@ -5,13 +5,21 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 
-from main.sitemap_urls import render_sitemap_xml
+from main.sitemap_urls import render_sitemap_xml, render_who_update_sitemap_xml
 from .models import WhoUpdateOnboardingFunnel
 from .onboarding_analytics import capture_landing_view, tracked_telegram_url
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 INDEXNOW_KEY = "qIXnCp99XqCIbkmFQv6mWaNweY2n1fio"
+WHO_UPDATE_ORIGIN = "https://who-update.ru"
+
+
+def _is_who_update_host(request: HttpRequest) -> bool:
+    return request.get_host().split(":", 1)[0].lower() in {
+        "who-update.ru",
+        "www.who-update.ru",
+    }
 
 
 def who_update_landing(request: HttpRequest):
@@ -22,8 +30,11 @@ def who_update_landing(request: HttpRequest):
         request,
         "webhook_tg/landing.html",
         {
-            "canonical_url": "https://maksonchik.ru/bot/",
-            "landing_path": "/bot/",
+            "canonical_url": f"{WHO_UPDATE_ORIGIN}/",
+            "landing_url": f"{WHO_UPDATE_ORIGIN}/",
+            "main_site_url": "https://maksonchik.ru/",
+            "privacy_url": f"{WHO_UPDATE_ORIGIN}/privacy/",
+            "terms_url": f"{WHO_UPDATE_ORIGIN}/terms/",
             "telegram_bot_url": (
                 tracked_telegram_url(funnel)
                 if funnel is not None
@@ -31,6 +42,32 @@ def who_update_landing(request: HttpRequest):
             ),
             "tracking_code": funnel.tracking_code if funnel is not None else "",
         },
+    )
+
+
+def _legal_context(document_type: str) -> dict:
+    return {
+        "document_type": document_type,
+        "landing_url": f"{WHO_UPDATE_ORIGIN}/",
+        "main_site_url": "https://maksonchik.ru/",
+        "privacy_url": f"{WHO_UPDATE_ORIGIN}/privacy/",
+        "terms_url": f"{WHO_UPDATE_ORIGIN}/terms/",
+    }
+
+
+def who_update_privacy(request: HttpRequest):
+    return render(
+        request,
+        "webhook_tg/legal.html",
+        _legal_context("privacy"),
+    )
+
+
+def who_update_terms(request: HttpRequest):
+    return render(
+        request,
+        "webhook_tg/legal.html",
+        _legal_context("terms"),
     )
 
 
@@ -65,13 +102,28 @@ def indexnow_key_file(request: HttpRequest):
 
 def sitemap_xml(request: HttpRequest):
     return HttpResponse(
-        render_sitemap_xml(),
+        (
+            render_who_update_sitemap_xml()
+            if _is_who_update_host(request)
+            else render_sitemap_xml()
+        ),
         content_type="application/xml; charset=UTF-8",
     )
 
 
 def robots_txt(request: HttpRequest):
-    content = (BASE_DIR / "robots.txt").read_text(encoding="utf-8")
+    if _is_who_update_host(request):
+        content = (
+            "User-agent: *\n"
+            "Allow: /\n"
+            "Disallow: /webhook_tg/\n"
+            "Disallow: /bot/subscribe/\n"
+            "Disallow: /bot/payment/\n"
+            "Disallow: /bot/yookassa/\n\n"
+            f"Sitemap: {WHO_UPDATE_ORIGIN}/sitemap.xml\n"
+        )
+    else:
+        content = (BASE_DIR / "robots.txt").read_text(encoding="utf-8")
     return HttpResponse(content, content_type="text/plain; charset=UTF-8")
 
 

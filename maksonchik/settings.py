@@ -12,6 +12,8 @@ DEBUG = False
 ALLOWED_HOSTS = [
     "maksonchik.ru",
     "www.maksonchik.ru",
+    "who-update.ru",
+    "www.who-update.ru",
     "158.160.136.81",
     "213.226.124.52",
     "localhost",
@@ -21,11 +23,16 @@ ALLOWED_HOSTS = [
 # HTTPS завершается на reverse proxy. Заголовок выставляется только SSL-vhost,
 # поэтому Django может безопасно определить схему исходного запроса.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-CSRF_TRUSTED_ORIGINS = ["https://maksonchik.ru", "https://www.maksonchik.ru"]
+CSRF_TRUSTED_ORIGINS = [
+    "https://maksonchik.ru",
+    "https://www.maksonchik.ru",
+    "https://who-update.ru",
+    "https://www.who-update.ru",
+]
 CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_SECURE = True
 
-WHO_UPDATE_SITE_URL = "https://maksonchik.ru"
+WHO_UPDATE_SITE_URL = "https://who-update.ru"
 YANDEX_METRIKA_COUNTER_ID = int(os.environ.get("YANDEX_METRIKA_COUNTER_ID", "111680333"))
 YANDEX_METRIKA_OAUTH_TOKEN = os.environ.get("YANDEX_METRIKA_OAUTH_TOKEN", "")
 try:
@@ -63,6 +70,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'maksonchik.host_routing.HostURLConfMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
