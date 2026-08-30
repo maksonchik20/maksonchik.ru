@@ -16,7 +16,7 @@ def json_ld_blocks(response):
 
 class SeoPagesTest(TestCase):
     def test_who_update_uses_single_canonical_url(self):
-        response = self.client.get("/bot/")
+        response = self.client.get("/", HTTP_HOST="who-update.ru")
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(
@@ -48,7 +48,13 @@ class SeoPagesTest(TestCase):
         response = self.client.get("/who-update-bot/")
 
         self.assertEqual(response.status_code, 301)
-        self.assertEqual(response["Location"], "/bot/")
+        self.assertEqual(response["Location"], "https://who-update.ru/")
+
+    def test_old_bot_path_redirects_permanently_to_new_domain(self):
+        response = self.client.get("/bot/")
+
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response["Location"], "https://who-update.ru/")
 
     def test_main_sitemap_no_longer_advertises_bot_subdirectory(self):
         response = self.client.get("/sitemap.xml")
@@ -69,6 +75,8 @@ class SeoPagesTest(TestCase):
         )
         self.assertContains(response, 'content="WhoUpdate"')
         self.assertContains(response, "© WhoUpdate · who-update.ru")
+        self.assertContains(response, "mc.yandex.ru/watch/112093587")
+        self.assertNotContains(response, "mc.yandex.ru/watch/111680333")
         self.assertNotContains(response, 'id="lead-form"')
 
     def test_who_update_domain_redirects_legacy_bot_path_to_root(self):

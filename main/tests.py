@@ -103,7 +103,7 @@ class LeadFormTest(TestCase):
                 self.assertContains(response, 'href="/privacy/"')
 
     def test_bot_page_has_no_development_lead_form(self):
-        response = self.client.get("/bot/")
+        response = self.client.get("/", HTTP_HOST="who-update.ru")
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'id="lead-form"')

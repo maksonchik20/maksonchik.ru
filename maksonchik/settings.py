@@ -33,7 +33,13 @@ CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_SECURE = True
 
 WHO_UPDATE_SITE_URL = "https://who-update.ru"
-YANDEX_METRIKA_COUNTER_ID = int(os.environ.get("YANDEX_METRIKA_COUNTER_ID", "111680333"))
+WHO_UPDATE_METRIKA_COUNTER_ID = int(
+    os.environ.get("WHO_UPDATE_METRIKA_COUNTER_ID", "112093587")
+)
+# Офлайн-конверсии относятся только к WhoUpdate и загружаются в его счётчик.
+YANDEX_METRIKA_COUNTER_ID = int(
+    os.environ.get("YANDEX_METRIKA_COUNTER_ID", str(WHO_UPDATE_METRIKA_COUNTER_ID))
+)
 YANDEX_METRIKA_OAUTH_TOKEN = os.environ.get("YANDEX_METRIKA_OAUTH_TOKEN", "")
 try:
     from env import (

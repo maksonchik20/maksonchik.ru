@@ -15,7 +15,7 @@ from .onboarding_analytics import (
 class WhoUpdateLandingAttributionTests(TestCase):
     def test_landing_keeps_direct_attribution_in_telegram_deep_link(self):
         response = self.client.get(
-            "/bot/",
+            "/",
             {
                 "utm_source": "yandex",
                 "utm_campaign": "713813024",
@@ -25,6 +25,7 @@ class WhoUpdateLandingAttributionTests(TestCase):
                 "utm_region": "213",
                 "yclid": "test-yandex-click-id",
             },
+            HTTP_HOST="who-update.ru",
             HTTP_USER_AGENT="Mozilla/5.0",
         )
 
