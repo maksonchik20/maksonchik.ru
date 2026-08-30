@@ -18,6 +18,7 @@ from .outbox import process_outbox
 from .incoming import claim_next_update, process_claimed_update
 
 TELEGRAM_REQUESTS_PATCH = "webhook_tg.telegram.TELEGRAM_SESSION.post"
+WHO_UPDATE_BOT_LINK = '<a href="https://t.me/who_update_bot">@who_update_bot</a>'
 
 
 def make_business_message_payload(
@@ -1058,6 +1059,7 @@ class WebhookEditedBusinessMessageTests(NoTelegramApiTestCase):
         self.assertIn("Old:", notification_text)
         self.assertIn("New:", notification_text)
         self.assertIn(new_text, notification_text)
+        self.assertTrue(notification_text.endswith(WHO_UPDATE_BOT_LINK))
 
     def test_edited_business_message_skips_notification_when_owner_edits(self):
         """Когда владелец business-аккаунта редактирует — себе и собеседнику не шлём (только через чужое подключение)."""
@@ -1165,6 +1167,7 @@ class WebhookDeletedBusinessMessageTests(NoTelegramApiTestCase):
         self.assertIn(saved_text, notification_text)
         self.assertIn(first_name, notification_text)
         self.assertIn(username, notification_text)
+        self.assertTrue(notification_text.endswith(WHO_UPDATE_BOT_LINK))
 
     def test_deleted_own_message_by_owner_skips_notification(self):
         """Удаление своего сообщения владельцем business — уведомление не шлём."""
@@ -1287,6 +1290,10 @@ class WebhookDeletedBusinessMessageTests(NoTelegramApiTestCase):
         self.assertEqual(len(send_document_calls), 1)
         call = send_document_calls[0]
         self.assertEqual(call.kwargs["data"]["chat_id"], user_chat_id_notification)
+        self.assertTrue(
+            call.kwargs["data"]["caption"].endswith(WHO_UPDATE_BOT_LINK)
+        )
+        self.assertEqual(call.kwargs["data"]["parse_mode"], "HTML")
         filename, content, content_type = call.kwargs["files"]["document"]
         self.assertTrue(filename.endswith(".txt"))
         self.assertEqual(content_type, "text/plain; charset=utf-8")
@@ -1329,6 +1336,9 @@ class WebhookDeletedBusinessMessageTests(NoTelegramApiTestCase):
         ]
         self.assertEqual(send_document_calls, [])
         self.assertEqual(len(send_message_calls), 10)
+        for call in send_message_calls:
+            _, body = get_post_call_args(call)
+            self.assertTrue(body["text"].endswith(WHO_UPDATE_BOT_LINK))
 
 
 class WebhookIdempotencyTests(NoTelegramApiTestCase):

@@ -15,12 +15,20 @@ from .metrics import (
     OUTBOX_MAX_ATTEMPTS,
     OUTBOX_OLDEST_AGE,
     OUTBOX_SIZE,
+    ONBOARDING_CONNECTIONS_TOTAL,
+    ONBOARDING_FUNNEL_TOTAL,
+    ONBOARDING_MILESTONES_TOTAL,
     STARTED_USERS,
     SYSTEM_MEMORY_AVAILABLE,
     SYSTEM_MEMORY_USED,
     set_gauge,
 )
-from .models import TelegramIncomingUpdate, TelegramOutbox, UserTg
+from .models import (
+    TelegramIncomingUpdate,
+    TelegramOutbox,
+    UserTg,
+    WhoUpdateOnboardingFunnel,
+)
 from .resource_metrics import collect_resource_snapshot
 
 
@@ -71,6 +79,62 @@ def collect_database_gauges() -> None:
             access_expires_at__gt=now,
         ).count(),
     )
+
+    funnel_stages = {
+        "landing_only": WhoUpdateOnboardingFunnel.objects.filter(
+            landing_viewed_at__isnull=False,
+            telegram_started_at__isnull=True,
+        ).count(),
+        "started": WhoUpdateOnboardingFunnel.objects.filter(
+            telegram_started_at__isnull=False,
+            first_reminder_sent_at__isnull=True,
+            connected_at__isnull=True,
+        ).count(),
+        "after_first_reminder": WhoUpdateOnboardingFunnel.objects.filter(
+            first_reminder_sent_at__isnull=False,
+            second_reminder_sent_at__isnull=True,
+            connected_at__isnull=True,
+        ).count(),
+        "after_second_reminder": WhoUpdateOnboardingFunnel.objects.filter(
+            second_reminder_sent_at__isnull=False,
+            connected_at__isnull=True,
+        ).count(),
+        "connected": WhoUpdateOnboardingFunnel.objects.filter(
+            connected_at__isnull=False,
+        ).count(),
+    }
+    for stage, count in funnel_stages.items():
+        set_gauge(ONBOARDING_FUNNEL_TOTAL, count, {"stage": stage})
+
+    milestones = {
+        "landing": WhoUpdateOnboardingFunnel.objects.filter(
+            landing_viewed_at__isnull=False,
+        ).count(),
+        "telegram_start": WhoUpdateOnboardingFunnel.objects.filter(
+            telegram_started_at__isnull=False,
+        ).count(),
+        "demo_opened": WhoUpdateOnboardingFunnel.objects.filter(
+            demo_opened_at__isnull=False,
+        ).count(),
+        "reminder_1_sent": WhoUpdateOnboardingFunnel.objects.filter(
+            first_reminder_sent_at__isnull=False,
+        ).count(),
+        "reminder_2_sent": WhoUpdateOnboardingFunnel.objects.filter(
+            second_reminder_sent_at__isnull=False,
+        ).count(),
+        "connected": WhoUpdateOnboardingFunnel.objects.filter(
+            connected_at__isnull=False,
+        ).count(),
+    }
+    for milestone, count in milestones.items():
+        set_gauge(ONBOARDING_MILESTONES_TOTAL, count, {"milestone": milestone})
+
+    for stage in WhoUpdateOnboardingFunnel.ConnectionStage.values:
+        set_gauge(
+            ONBOARDING_CONNECTIONS_TOTAL,
+            WhoUpdateOnboardingFunnel.objects.filter(connection_stage=stage).count(),
+            {"stage": stage},
+        )
 
 
 def collect_system_gauges() -> None:

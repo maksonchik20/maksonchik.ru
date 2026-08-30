@@ -19,13 +19,13 @@
 {% endblock %}
 
 {% block nav_cta %}
-<a class="btn btn-primary" href="https://t.me/who_update_bot" target="_blank" rel="noopener">Открыть бота</a>
+<a class="btn btn-primary" href="{{ telegram_bot_url|default:'https://t.me/who_update_bot' }}" target="_blank" rel="noopener">Открыть бота</a>
 {% endblock %}
 
 {% block footer_inner %}
 <div>© WhoUpdate · maksonchik.ru</div>
 <div>
-  <a href="https://t.me/who_update_bot" target="_blank" rel="noopener">Telegram-бот</a>
+  <a href="{{ telegram_bot_url|default:'https://t.me/who_update_bot' }}" target="_blank" rel="noopener">Telegram-бот</a>
   ·
   <a href="/">maksonchik.ru</a>
   ·
@@ -423,7 +423,7 @@
           </h1>
           <p class="hero-sub" data-reveal data-reveal-delay="2">Бот для просмотра удалённых и изменённых сообщений: подключается через автоматизацию чатов и присылает копию, когда собеседник стирает или правит текст. Без Telegram Premium, без паролей, без SMS-кодов и без сторонних APK.</p>
           <div class="hero-cta" data-reveal data-reveal-delay="3">
-            <a class="btn btn-primary btn-arrow" href="https://t.me/who_update_bot" target="_blank" rel="noopener">Подключить WhoUpdate</a>
+            <a class="btn btn-primary btn-arrow" href="{{ telegram_bot_url|default:'https://t.me/who_update_bot' }}" target="_blank" rel="noopener">Подключить WhoUpdate</a>
             <a class="btn btn-ghost btn-arrow" href="#features">Демонстрация работы</a>
           </div>
           <p class="hero-note" data-reveal data-reveal-delay="4">Telegram Premium не нужен · Подключение за минуту · Бесплатно</p>
@@ -550,7 +550,7 @@
       </article>
     </div>
     <p style="margin-top: 28px;" data-reveal>
-      <a class="btn btn-primary btn-arrow" href="https://t.me/who_update_bot" target="_blank" rel="noopener">Открыть @who_update_bot</a>
+      <a class="btn btn-primary btn-arrow" href="{{ telegram_bot_url|default:'https://t.me/who_update_bot' }}" target="_blank" rel="noopener">Открыть @who_update_bot</a>
     </p>
   </section>
 
@@ -616,8 +616,8 @@
         <h2 class="gradient-text">Подключите архив, пока важное не стёрли</h2>
         <p>WhoUpdate начнёт сохранять личные чаты сразу после подключения: удаления, правки и медиа больше не растворяются незаметно.</p>
         <div class="contact-actions">
-          <a class="btn btn-primary btn-arrow" href="https://t.me/who_update_bot" target="_blank" rel="noopener">Подключить WhoUpdate</a>
-          <a class="btn btn-ghost" href="https://t.me/who_update_bot" target="_blank" rel="noopener">@who_update_bot</a>
+          <a class="btn btn-primary btn-arrow" href="{{ telegram_bot_url|default:'https://t.me/who_update_bot' }}" target="_blank" rel="noopener">Подключить WhoUpdate</a>
+          <a class="btn btn-ghost" href="{{ telegram_bot_url|default:'https://t.me/who_update_bot' }}" target="_blank" rel="noopener">@who_update_bot</a>
         </div>
       </div>
     </div>
@@ -637,6 +637,26 @@
 {% block extra_scripts %}
 <script>
 (function () {
+  if (typeof ym === "function") {
+    ym({{ site.metrika_id }}, "reachGoal", "who_update_landing_view", {
+      tracking_code: "{{ tracking_code|escapejs }}"
+    });
+    {% if tracking_code %}
+    ym({{ site.metrika_id }}, "getClientID", function (clientID) {
+      if (!clientID) return;
+      fetch("{% url 'who_update_metrika_client_id' %}", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tracking_code: "{{ tracking_code|escapejs }}",
+          client_id: String(clientID)
+        }),
+        keepalive: true
+      }).catch(function () {});
+    });
+    {% endif %}
+  }
+
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var finePointer = window.matchMedia("(pointer: fine)").matches;
   if (!reduced) {

@@ -6,6 +6,11 @@ from . import payment_views, seo_views, views
 urlpatterns = [
     path("bot/", seo_views.who_update_landing, name="who_update_landing"),
     path(
+        "bot/analytics/client-id/",
+        seo_views.who_update_metrika_client_id,
+        name="who_update_metrika_client_id",
+    ),
+    path(
         "who-update-bot/",
         RedirectView.as_view(url="/bot/", permanent=True),
         name="who_update_landing_alt",

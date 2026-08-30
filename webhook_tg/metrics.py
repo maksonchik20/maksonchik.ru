@@ -33,6 +33,7 @@ REFERRAL_REWARDS = "who_update_referral_rewards"
 SQLITE_LOCK_ERRORS = "who_update_sqlite_lock_errors"
 POLL_ERRORS = "who_update_poll_errors"
 OUTBOX_EVENTS = "who_update_outbox_events"
+ONBOARDING_EVENTS = "who_update_onboarding_events"
 BACKGROUND_JOB_HEARTBEAT = "who_update_background_job_heartbeat"
 
 OUTBOX_SIZE = "who_update_outbox_size"
@@ -49,6 +50,9 @@ EXPIRED_SUBSCRIPTIONS = "who_update_expired_subscriptions"
 ACTIVE_LIMITED_SUBSCRIPTIONS = "who_update_active_limited_subscriptions"
 SYSTEM_MEMORY_USED = "who_update_system_memory_used_percent"
 SYSTEM_MEMORY_AVAILABLE = "who_update_system_memory_available_bytes"
+ONBOARDING_FUNNEL_TOTAL = "who_update_onboarding_funnel_total"
+ONBOARDING_MILESTONES_TOTAL = "who_update_onboarding_milestones_total"
+ONBOARDING_CONNECTIONS_TOTAL = "who_update_onboarding_connections_total"
 
 COUNT_METRICS = {
     TELEGRAM_MESSAGES_SENT,
@@ -64,6 +68,7 @@ COUNT_METRICS = {
     SQLITE_LOCK_ERRORS,
     POLL_ERRORS,
     OUTBOX_EVENTS,
+    ONBOARDING_EVENTS,
 }
 
 GAUGE_METRICS = {
@@ -82,6 +87,9 @@ GAUGE_METRICS = {
     ACTIVE_LIMITED_SUBSCRIPTIONS,
     SYSTEM_MEMORY_USED,
     SYSTEM_MEMORY_AVAILABLE,
+    ONBOARDING_FUNNEL_TOTAL,
+    ONBOARDING_MILESTONES_TOTAL,
+    ONBOARDING_CONNECTIONS_TOTAL,
 }
 
 _last_heartbeat: dict[str, float] = {}

@@ -72,6 +72,7 @@ def schedule_connection_reminders(
     *,
     started_at,
     start_update_id: int,
+    onboarding_funnel_id: int | None = None,
 ) -> list[BackgroundTask]:
     """Создаёт ровно две задачи для последнего /start пользователя."""
     with transaction.atomic():
@@ -101,6 +102,7 @@ def schedule_connection_reminders(
             "user_pk": bot_user.pk,
             "started_at": started_at.isoformat(),
             "start_update_id": start_update_id,
+            "onboarding_funnel_id": onboarding_funnel_id,
         }
         tasks = []
         for suffix, delay, reminder_number in task_specs:
@@ -191,8 +193,17 @@ def _send_connection_reminder(task: BackgroundTask) -> None:
         },
     )
     if ok:
+        sent_at = timezone.now()
         UserTg.objects.filter(pk=user.pk, business_is_connected=False).update(
-            connection_reminder_sent_at=timezone.now()
+            connection_reminder_sent_at=sent_at
+        )
+        from .onboarding_analytics import record_reminder_sent
+
+        record_reminder_sent(
+            user,
+            int(task.payload.get("reminder_number") or 0),
+            sent_at=sent_at,
+            funnel_pk=task.payload.get("onboarding_funnel_id"),
         )
         return
 

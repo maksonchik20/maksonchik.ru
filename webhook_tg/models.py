@@ -11,6 +11,10 @@ def generate_who_update_referral_code():
     return secrets.token_urlsafe(9)
 
 
+def generate_who_update_tracking_code():
+    return secrets.token_urlsafe(9)
+
+
 class AdminChatFilter(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -167,6 +171,79 @@ class UserTg(models.Model):
     class Meta:
         verbose_name = "Пользователь бота"
         verbose_name_plural = "Пользователи бота"
+
+
+class WhoUpdateOnboardingFunnel(models.Model):
+    """Одна попытка пройти путь от лендинга или /start до подключения."""
+
+    class ConnectionStage(models.TextChoices):
+        IMMEDIATE = "immediate", "Сразу"
+        AFTER_FIRST_REMINDER = "after_first", "После первого напоминания"
+        AFTER_SECOND_REMINDER = "after_second", "После второго напоминания"
+        UNKNOWN = "unknown", "Не удалось определить"
+
+    tracking_code = models.CharField(
+        verbose_name="Код сквозной аналитики",
+        max_length=24,
+        unique=True,
+        default=generate_who_update_tracking_code,
+        editable=False,
+    )
+    user = models.ForeignKey(
+        UserTg,
+        verbose_name="Пользователь",
+        related_name="onboarding_funnels",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+    )
+    landing_path = models.CharField(max_length=255, blank=True, default="")
+    utm_source = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    utm_medium = models.CharField(max_length=255, blank=True, default="")
+    utm_campaign = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    utm_content = models.CharField(max_length=255, blank=True, default="")
+    utm_term = models.CharField(max_length=255, blank=True, default="")
+    utm_device = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    utm_region = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    yclid = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    metrika_client_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_index=True,
+    )
+    landing_viewed_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    telegram_started_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    start_update_id = models.BigIntegerField(blank=True, null=True, unique=True)
+    demo_opened_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    first_reminder_sent_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    second_reminder_sent_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    connected_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    connection_stage = models.CharField(
+        verbose_name="Когда подключился",
+        max_length=24,
+        choices=ConnectionStage.choices,
+        blank=True,
+        default="",
+        db_index=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Воронка подключения WhoUpdate"
+        verbose_name_plural = "Воронки подключения WhoUpdate"
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(
+                fields=("user", "-telegram_started_at"),
+                name="wu_funnel_user_started",
+            ),
+        ]
+
+    def __str__(self):
+        user = self.user.username if self.user_id and self.user.username else self.user_id or "—"
+        return f"{self.tracking_code} → {user}"
 
 
 class WhoUpdatePaymentOrder(models.Model):

@@ -21,6 +21,7 @@ from .models import (
     BotChatEvent,
     MutedPeer,
     WhoUpdatePaymentOrder,
+    WhoUpdateOnboardingFunnel,
 )
 from .telegram import (
     get_telegram_file_path,
@@ -350,6 +351,75 @@ class WhoUpdatePaymentOrderAdmin(admin.ModelAdmin):
     search_fields = ("public_id", "yookassa_payment_id", "user__username", "user__user_id")
     readonly_fields = ("public_id", "created_at", "paid_at", "access_expires_at_after")
     ordering = ("-created_at",)
+
+
+@admin.register(WhoUpdateOnboardingFunnel)
+class WhoUpdateOnboardingFunnelAdmin(admin.ModelAdmin):
+    list_display = (
+        "created_at",
+        "tracking_code",
+        "user",
+        "utm_source",
+        "utm_campaign",
+        "last_step",
+        "connection_stage",
+    )
+    list_filter = (
+        "connection_stage",
+        "utm_source",
+        "utm_campaign",
+        ("created_at", admin.DateFieldListFilter),
+    )
+    search_fields = (
+        "tracking_code",
+        "yclid",
+        "metrika_client_id",
+        "utm_term",
+        "user__username",
+        "user__user_id",
+    )
+    ordering = ("-created_at",)
+    readonly_fields = (
+        "tracking_code",
+        "user",
+        "landing_path",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_content",
+        "utm_term",
+        "utm_device",
+        "utm_region",
+        "yclid",
+        "metrika_client_id",
+        "landing_viewed_at",
+        "telegram_started_at",
+        "start_update_id",
+        "demo_opened_at",
+        "first_reminder_sent_at",
+        "second_reminder_sent_at",
+        "connected_at",
+        "connection_stage",
+        "created_at",
+        "updated_at",
+    )
+
+    @admin.display(description="Последний этап")
+    def last_step(self, obj):
+        if obj.connected_at:
+            return "Подключился"
+        if obj.second_reminder_sent_at:
+            return "После второго напоминания"
+        if obj.first_reminder_sent_at:
+            return "После первого напоминания"
+        if obj.telegram_started_at:
+            if obj.demo_opened_at:
+                return "/start, открыл демонстрацию"
+            return "/start, не подключился"
+        return "Лендинг, без /start"
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(MutedPeer)

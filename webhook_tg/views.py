@@ -76,9 +76,21 @@ from .subscriptions import (
     subscription_keyboard,
 )
 from .bot_outgoing_log import log_bot_incoming
+from .onboarding_analytics import (
+    record_connection,
+    record_demo_opened,
+    register_telegram_start,
+)
 
 
 logger = logging.getLogger(__name__)
+
+WHO_UPDATE_BOT_LINK = '<a href="https://t.me/who_update_bot">@who_update_bot</a>'
+
+
+def _with_who_update_bot_link(text: str) -> str:
+    """Добавляет кликабельную ссылку на бота внизу уведомления."""
+    return f"{text}\n\n{WHO_UPDATE_BOT_LINK}"
 
 
 def who_update_landing(request: HttpRequest):
@@ -210,6 +222,12 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
         if created:
             tg_send_message(OWNER_CHAT_ID, _owner_start_notification(bot_user))
         now = timezone.now()
+        onboarding_funnel = register_telegram_start(
+            bot_user,
+            start_payload,
+            update_id=int(data["update_id"]),
+            started_at=now,
+        )
         start_trial_if_needed(bot_user, at=now)
         bot_user.refresh_from_db()
         bot_user.last_start_at = now
@@ -228,6 +246,7 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
             bot_user,
             started_at=now,
             start_update_id=int(data["update_id"]),
+            onboarding_funnel_id=onboarding_funnel.pk,
         )
         if bot_user.has_active_access(now):
             send_meeting_message(chat_id)
@@ -341,6 +360,7 @@ def _handle_demo_callback(callback: dict) -> bool:
     answer_callback_query(callback_id, "Отправляю демонстрацию")
     if not chat_id:
         return True
+    record_demo_opened(UserTg.objects.filter(chat_id=chat_id).first())
     if len(DEMO_VIDEOS) != 3:
         tg_send_message(chat_id, "Демонстрация временно недоступна. Попробуйте позже.")
         return True
@@ -491,6 +511,7 @@ def _handle_business_connection_update(conn: dict) -> None:
             update_fields=update_fields
         )
         if is_new_connection:
+            record_connection(bot_user, connected_at=now)
             tg_send_message(user_chat_id, BOT_ACTIVATED_TEXT)
             if not bot_user.access_unlimited:
                 bot_user.refresh_from_db()
@@ -858,7 +879,7 @@ def _build_deleted_caption(deleted: dict, message_id: int, text: str) -> str:
     if username:
         user_part += f" (@{html.escape(username)})"
     old_text = text or "(текст не сохранён)"
-    return (
+    return _with_who_update_bot_link(
         f"{user_part} удалил(а) сообщение (id={message_id}):\n"
         f"<blockquote>{html.escape(old_text)}</blockquote>"
     )
@@ -943,7 +964,12 @@ def _send_deleted_notifications(deleted: dict, business_connection: BusinessConn
         user_part += f" (@{html.escape(username)})"
 
     if not msg_ids:
-        tg_send_message(business_connection.user_chat_id, f"{user_part} удалил(а) сообщения (ids не пришли).")
+        tg_send_message(
+            business_connection.user_chat_id,
+            _with_who_update_bot_link(
+                f"{user_part} удалил(а) сообщения (ids не пришли)."
+            ),
+        )
         return
 
     known = Message.objects.filter(
@@ -962,7 +988,7 @@ def _send_deleted_notifications(deleted: dict, business_connection: BusinessConn
             business_connection.user_chat_id,
             export,
             filename=f"deleted_chat_{safe_peer}_{chat_id}.txt",
-            caption=(
+            caption=_with_who_update_bot_link(
                 f"{user_part} удалил(а) переписку у обоих. "
                 f"В файле — {len(msg_ids)} сообщений из события удаления."
             ),
@@ -970,8 +996,10 @@ def _send_deleted_notifications(deleted: dict, business_connection: BusinessConn
         if not sent:
             tg_send_message(
                 business_connection.user_chat_id,
-                f"{user_part} удалил(а) {len(msg_ids)} сообщений, "
-                "но файл с архивом отправить не удалось.",
+                _with_who_update_bot_link(
+                    f"{user_part} удалил(а) {len(msg_ids)} сообщений, "
+                    "но файл с архивом отправить не удалось."
+                ),
             )
         return
 
@@ -990,7 +1018,9 @@ def _send_deleted_notifications(deleted: dict, business_connection: BusinessConn
     if notified and len(msg_ids) > 10:
         tg_send_message(
             business_connection.user_chat_id,
-            f"Было удалено больше 10 сообщений (всего {len(msg_ids)}).",
+            _with_who_update_bot_link(
+                f"Было удалено больше 10 сообщений (всего {len(msg_ids)})."
+            ),
         )
 
 
@@ -1008,7 +1038,11 @@ def _build_deleted_message_parts(deleted: dict) -> list[str]:
 
     msg_ids = deleted.get("message_ids") or []
     if not msg_ids:
-        return [f"{user_part} удалил(а) сообщения (ids не пришли)."]
+        return [
+            _with_who_update_bot_link(
+                f"{user_part} удалил(а) сообщения (ids не пришли)."
+            )
+        ]
 
     business_connection_id = deleted.get("business_connection_id")
     chat_id = deleted.get("chat", {}).get("id")
@@ -1023,11 +1057,17 @@ def _build_deleted_message_parts(deleted: dict) -> list[str]:
     for mid in msg_ids[:20]:
         old_text = known_map.get(mid) or "(текст не сохранён)"
         parts.append(
-            f"{user_part} удалил(а) сообщение (id={mid}):\n"
-            f"<blockquote>{html.escape(old_text)}</blockquote>"
+            _with_who_update_bot_link(
+                f"{user_part} удалил(а) сообщение (id={mid}):\n"
+                f"<blockquote>{html.escape(old_text)}</blockquote>"
+            )
         )
     if len(msg_ids) > 20:
-        parts.append(f"Было удалено больше 10 сообщений (всего {len(msg_ids)}).")
+        parts.append(
+            _with_who_update_bot_link(
+                f"Было удалено больше 10 сообщений (всего {len(msg_ids)})."
+            )
+        )
     return parts
 
 
@@ -1050,11 +1090,10 @@ def build_message_update(msg: dict, business_connection: BusinessConnection):
     if username:
         user_part += f" (@{html.escape(username)})"
 
-    return (
+    return _with_who_update_bot_link(
         f"{user_part} изменил(а) сообщение:\n\n"
         f"<b>Old:</b>\n<blockquote>{html.escape(old_text)}</blockquote>\n"
-        f"<b>New:</b>\n<blockquote>{html.escape(new_text)}</blockquote>\n\n"
-        f"<b>@{html.escape('who_update_bot')}</b>"
+        f"<b>New:</b>\n<blockquote>{html.escape(new_text)}</blockquote>"
     )
 
 
