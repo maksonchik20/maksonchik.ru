@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 
@@ -744,6 +745,13 @@ class Message(models.Model):
             models.Index(
                 fields=["chat_id", "business_connection_id", "-id"],
                 name="wu_msg_chat_conn_id",
+            ),
+            models.Index(
+                models.F("business_connection_id"),
+                Lower("username_from"),
+                models.F("created_at"),
+                models.F("message_id"),
+                name="wu_msg_history_user",
             ),
             models.Index(fields=["file_id"], name="wu_msg_file_id"),
         ]

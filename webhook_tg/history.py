@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import re
 
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from .models import FileType, Message, UserTg
@@ -75,9 +76,9 @@ def handle_history_command(chat_id: int, bot_user: UserTg, text: str) -> bool:
         return True
 
     messages = list(
-        Message.objects.filter(
+        Message.objects.alias(username_normalized=Lower("username_from")).filter(
             business_connection_id=bot_user.business_connection_id,
-            username_from__iexact=username,
+            username_normalized=username,
         ).order_by("created_at", "message_id")
     )
     if not messages:
