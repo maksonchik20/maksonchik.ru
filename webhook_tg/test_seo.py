@@ -105,6 +105,14 @@ class SeoPagesTest(TestCase):
         self.assertContains(robots, "Sitemap: https://who-update.ru/sitemap.xml")
         self.assertContains(robots, "Disallow: /bot/payment/")
 
+    def test_who_update_webmaster_verification_file_is_available(self):
+        response = self.client.get(
+            "/yandex_f8f11c5f646de698.html",
+            HTTP_HOST="who-update.ru",
+        )
+
+        self.assertContains(response, "Verification: f8f11c5f646de698")
+
     def test_who_update_legal_pages_are_available(self):
         privacy = self.client.get("/privacy/", HTTP_HOST="who-update.ru")
         terms = self.client.get("/terms/", HTTP_HOST="who-update.ru")

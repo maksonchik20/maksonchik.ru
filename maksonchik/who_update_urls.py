@@ -46,6 +46,11 @@ urlpatterns = [
         name="yandex_webmaster_verify",
     ),
     path(
+        "yandex_f8f11c5f646de698.html",
+        seo_views.yandex_who_update_webmaster_verify,
+        name="yandex_who_update_webmaster_verify",
+    ),
+    path(
         f"{seo_views.INDEXNOW_KEY}.txt",
         seo_views.indexnow_key_file,
         name="indexnow_key_file",
