@@ -1,9 +1,91 @@
 <script>
 (function () {
-    function scrollMessagesToTop() {
+    function initHistoryPagination() {
         var container = document.getElementById('wu-chat-messages');
-        if (container) {
-            container.scrollTop = 0;
+        var list = document.getElementById('wu-chat-list');
+        var loader = document.getElementById('wu-chat-loader');
+        if (!container || !list || !loader) {
+            return;
+        }
+
+        var loading = false;
+
+        function hasMore() {
+            return container.dataset.hasMore === '1';
+        }
+
+        function setFinished() {
+            container.dataset.hasMore = '0';
+            loader.disabled = false;
+            loader.textContent = 'Начало переписки';
+        }
+
+        function loadOlderMessages() {
+            var loadUrl = container.dataset.loadUrl || '';
+            var before = container.dataset.nextBefore || '';
+            if (loading || !hasMore() || !loadUrl || !before) {
+                return;
+            }
+
+            loading = true;
+            loader.disabled = true;
+            loader.textContent = 'Загрузка предыдущих сообщений…';
+
+            var separator = loadUrl.indexOf('?') === -1 ? '?' : '&';
+            fetch(loadUrl + separator + 'before_id=' + encodeURIComponent(before), {
+                credentials: 'same-origin',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(function (data) {
+                    var previousHeight = container.scrollHeight;
+                    if (data.html) {
+                        list.insertAdjacentHTML('afterbegin', data.html);
+                    }
+                    container.dataset.nextBefore = data.next_before || '';
+                    container.dataset.hasMore = data.has_more ? '1' : '0';
+
+                    requestAnimationFrame(function () {
+                        container.scrollTop += container.scrollHeight - previousHeight;
+                        if (!hasMore()) {
+                            setFinished();
+                        } else {
+                            loader.disabled = false;
+                            loader.textContent = 'Загрузить предыдущие сообщения';
+                            if (container.scrollHeight <= container.clientHeight + 20) {
+                                loadOlderMessages();
+                            }
+                        }
+                    });
+                })
+                .catch(function () {
+                    loader.disabled = false;
+                    loader.textContent = 'Не удалось загрузить. Нажмите, чтобы повторить';
+                })
+                .finally(function () {
+                    loading = false;
+                });
+        }
+
+        function maybeLoadOlderMessages() {
+            if (container.scrollTop <= 240) {
+                loadOlderMessages();
+            }
+        }
+
+        loader.addEventListener('click', loadOlderMessages);
+        container.addEventListener('scroll', maybeLoadOlderMessages, { passive: true });
+        container.scrollTop = container.scrollHeight;
+
+        if (!hasMore()) {
+            setFinished();
+        } else if (container.scrollHeight <= container.clientHeight + 20) {
+            loadOlderMessages();
         }
     }
 
@@ -112,7 +194,7 @@
     }
 
     function initWuChat() {
-        scrollMessagesToTop();
+        initHistoryPagination();
         // делегирование на document — работает даже если DOMContentLoaded уже прошёл
         if (!window.__wuShowFileBound) {
             document.addEventListener('click', onShowFileClick, true);

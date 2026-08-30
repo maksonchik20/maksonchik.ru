@@ -740,5 +740,10 @@ class Message(models.Model):
         indexes = [
             models.Index(fields=["-created_at"], name="wu_msg_created_desc"),
             models.Index(fields=["chat_id", "-created_at"], name="wu_msg_chat_created"),
+            models.Index(fields=["chat_id", "-id"], name="wu_msg_chat_id_desc"),
+            models.Index(
+                fields=["chat_id", "business_connection_id", "-id"],
+                name="wu_msg_chat_conn_id",
+            ),
             models.Index(fields=["file_id"], name="wu_msg_file_id"),
         ]

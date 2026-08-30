@@ -1,9 +1,15 @@
 import json
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from django.contrib import admin
 from django.db.models import Q
-from django.http import HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, StreamingHttpResponse
+from django.http import (
+    HttpResponse,
+    HttpResponseBadRequest,
+    HttpResponseForbidden,
+    JsonResponse,
+    StreamingHttpResponse,
+)
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -45,6 +51,7 @@ MESSAGE_LIST_ONLY = (
     "business_connection_id",
     "message_id",
 )
+MESSAGE_CHAT_PAGE_SIZE = 100
 
 
 @admin.register(TelegramIncomingUpdate)
@@ -127,12 +134,62 @@ class MessageAdmin(admin.ModelAdmin):
         urls = super().get_urls()
         custom = [
             path(
+                "chat-page/",
+                self.admin_site.admin_view(self.chat_page_view),
+                name="webhook_tg_message_chat_page",
+            ),
+            path(
                 "preview-file/",
                 self.admin_site.admin_view(self.preview_file_view),
                 name="webhook_tg_message_preview_file",
             ),
         ]
         return custom + urls
+
+    def _chat_page(self, request, *, before_id=None):
+        queryset = self.get_queryset(request).only(*MESSAGE_LIST_ONLY).order_by("-id")
+        if before_id is not None:
+            queryset = queryset.filter(id__lt=before_id)
+
+        rows = list(queryset[: MESSAGE_CHAT_PAGE_SIZE + 1])
+        has_more = len(rows) > MESSAGE_CHAT_PAGE_SIZE
+        rows = rows[:MESSAGE_CHAT_PAGE_SIZE]
+        next_before = rows[-1].id if has_more and rows else None
+        rows.reverse()
+        return rows, has_more, next_before
+
+    @staticmethod
+    def _parse_positive_int(value):
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
+    def chat_page_view(self, request):
+        """Возвращает следующую порцию более старых сообщений для AJAX-чата."""
+        if not self.has_view_permission(request):
+            return HttpResponseForbidden("Недостаточно прав")
+
+        chat_id = self._parse_positive_int(request.GET.get("chat_id"))
+        before_id = self._parse_positive_int(request.GET.get("before_id"))
+        if chat_id is None:
+            return HttpResponseBadRequest("chat_id required")
+        if request.GET.get("before_id") and before_id is None:
+            return HttpResponseBadRequest("invalid before_id")
+
+        messages, has_more, next_before = self._chat_page(
+            request,
+            before_id=before_id,
+        )
+        return JsonResponse(
+            {
+                "html": "".join(str(format_message_html(message)) for message in messages),
+                "loaded": len(messages),
+                "has_more": has_more,
+                "next_before": next_before,
+            }
+        )
 
     def preview_file_view(self, request):
         """Проксирует файл из Telegram API в браузер без сохранения на диск."""
@@ -205,16 +262,25 @@ class MessageAdmin(admin.ModelAdmin):
         extra_context["wu_chat_mode"] = bool(chat_id)
 
         if chat_id:
-            messages = list(self.get_queryset(request).order_by("-created_at"))
-            extra_context["wu_chat_count"] = len(messages)
+            messages, has_more, next_before = self._chat_page(request)
             extra_context["wu_chat_shown"] = len(messages)
-            extra_context["wu_chat_limited"] = False
+            extra_context["wu_chat_limited"] = has_more
+            extra_context["wu_chat_next_before"] = next_before or ""
+
+            load_query = {"chat_id": chat_id}
+            if conn_id:
+                load_query["business_connection_id"] = conn_id
+            extra_context["wu_chat_load_url"] = (
+                reverse("admin:webhook_tg_message_chat_page")
+                + "?"
+                + urlencode(load_query)
+            )
 
             title_parts = [f"chat_id {chat_id}"]
             if conn_id:
                 title_parts.append(f"({conn_id[:12]}…)")
             if messages:
-                head = messages[0]
+                head = messages[-1]
                 if head.username_from:
                     title_parts.insert(0, f"@{head.username_from}")
                 elif head.first_name:

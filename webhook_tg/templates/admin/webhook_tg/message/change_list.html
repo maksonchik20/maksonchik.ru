@@ -47,6 +47,18 @@
             color: #6c757d;
             margin-bottom: 12px;
         }
+        .wu-chat-loader {
+            display: block;
+            width: 100%;
+            margin: 0 0 12px;
+            padding: 8px 12px;
+            border: 0;
+            border-radius: 8px;
+            background: transparent;
+            color: #6c757d;
+            cursor: pointer;
+        }
+        .wu-chat-loader:disabled { cursor: wait; }
         .wu-show-file {
             margin-top: 8px;
             padding: 4px 10px;
@@ -88,12 +100,22 @@
             <h2>Чат {{ wu_chat_title }}</h2>
             <div class="wu-chat-count">
                 {% if wu_chat_limited %}
-                    показаны последние {{ wu_chat_shown }} из {{ wu_chat_count }}
+                    показаны последние {{ wu_chat_shown }} сообщений · прокрутите вверх для загрузки истории
                 {% else %}
-                    {{ wu_chat_count }} сообщений
+                    сообщений: {{ wu_chat_shown }}
                 {% endif %}
             </div>
-            <div id="wu-chat-messages">{{ wu_chat_html }}</div>
+            <div
+                id="wu-chat-messages"
+                data-load-url="{{ wu_chat_load_url }}"
+                data-next-before="{{ wu_chat_next_before }}"
+                data-has-more="{% if wu_chat_limited %}1{% else %}0{% endif %}"
+            >
+                <button type="button" class="wu-chat-loader" id="wu-chat-loader">
+                    {% if wu_chat_limited %}Загрузить предыдущие сообщения{% else %}Начало переписки{% endif %}
+                </button>
+                <div id="wu-chat-list">{{ wu_chat_html }}</div>
+            </div>
         </div>
         {% include "admin/webhook_tg/includes/chat_scroll_script.html" %}
     {% endif %}

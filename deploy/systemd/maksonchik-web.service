@@ -9,7 +9,7 @@ Group=www-data
 WorkingDirectory=/srv/maksonchik/app
 Environment=DJANGO_SETTINGS_MODULE=maksonchik.settings
 Environment=MPLCONFIGDIR=/srv/maksonchik/.cache/matplotlib
-ExecStart=/srv/maksonchik/venv/bin/gunicorn --no-control-socket --access-logfile - --workers 2 --bind 127.0.0.1:8010 maksonchik.wsgi:application
+ExecStart=/srv/maksonchik/venv/bin/gunicorn --no-control-socket --access-logfile - --worker-class gthread --workers 2 --threads 2 --timeout 60 --graceful-timeout 30 --max-requests 1000 --max-requests-jitter 100 --bind 127.0.0.1:8010 maksonchik.wsgi:application
 Restart=always
 RestartSec=3
 
