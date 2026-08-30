@@ -100,6 +100,11 @@ def yandex_who_update_webmaster_verify(request: HttpRequest):
     return HttpResponse(content, content_type="text/html; charset=UTF-8")
 
 
+def yandex_who_update_metrika_verify(request: HttpRequest):
+    content = (BASE_DIR / "yandex_73195eba1d0ba5f4.html").read_text(encoding="utf-8")
+    return HttpResponse(content, content_type="text/html; charset=UTF-8")
+
+
 def indexnow_key_file(request: HttpRequest):
     content = (BASE_DIR / f"{INDEXNOW_KEY}.txt").read_text(encoding="utf-8").strip()
     return HttpResponse(content, content_type="text/plain; charset=UTF-8")

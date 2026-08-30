@@ -113,6 +113,14 @@ class SeoPagesTest(TestCase):
 
         self.assertContains(response, "Verification: f8f11c5f646de698")
 
+    def test_who_update_metrika_verification_file_is_available(self):
+        response = self.client.get(
+            "/yandex_73195eba1d0ba5f4.html",
+            HTTP_HOST="who-update.ru",
+        )
+
+        self.assertContains(response, "Verification: 73195eba1d0ba5f4")
+
     def test_who_update_legal_pages_are_available(self):
         privacy = self.client.get("/privacy/", HTTP_HOST="who-update.ru")
         terms = self.client.get("/terms/", HTTP_HOST="who-update.ru")
