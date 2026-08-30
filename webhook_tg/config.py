@@ -87,6 +87,16 @@ CONNECTION_REMINDER_TEXT = (
     "4. Разрешите боту доступ к сообщениям и сохраните настройки.\n\n"
     "Подробная инструкция показана на картинке выше."
 )
+CONNECTION_REMINDER_REPLY_MARKUP = {
+    "inline_keyboard": [
+        [
+            {
+                "text": "🟢 Подключить",
+                "url": PROFILE_SETTINGS_URL,
+            },
+        ],
+    ],
+}
 OWNER_CHAT_ID = "1394340082"
 
 # IndexNow (Яндекс): один ключ доступен в корне обоих доменов.

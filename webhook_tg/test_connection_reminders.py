@@ -5,6 +5,7 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 
+from .config import CONNECTION_REMINDER_REPLY_MARKUP
 from .models import UserTg
 
 
@@ -41,6 +42,10 @@ class ConnectionReminderCommandTests(TestCase):
 
         user.refresh_from_db()
         self.assertEqual(dispatch_mock.call_count, 1)
+        self.assertEqual(
+            dispatch_mock.call_args.args[2]["reply_markup"],
+            CONNECTION_REMINDER_REPLY_MARKUP,
+        )
         self.assertIsNone(user.connection_reminder_at)
         self.assertIsNotNone(user.connection_reminder_sent_at)
 

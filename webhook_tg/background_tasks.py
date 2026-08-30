@@ -9,7 +9,11 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from .config import CONNECTION_REMINDER_TEXT, START_PHOTO_ID
+from .config import (
+    CONNECTION_REMINDER_REPLY_MARKUP,
+    CONNECTION_REMINDER_TEXT,
+    START_PHOTO_ID,
+)
 from .models import BackgroundTask, UserTg
 from .telegram import dispatch_telegram_request
 
@@ -190,6 +194,7 @@ def _send_connection_reminder(task: BackgroundTask) -> None:
             "caption": CONNECTION_REMINDER_TEXT,
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
+            "reply_markup": CONNECTION_REMINDER_REPLY_MARKUP,
         },
     )
     if ok:

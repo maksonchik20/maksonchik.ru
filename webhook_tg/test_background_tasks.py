@@ -10,6 +10,7 @@ from .background_tasks import (
     process_claimed_task,
     schedule_connection_reminders,
 )
+from .config import CONNECTION_REMINDER_REPLY_MARKUP
 from .models import BackgroundTask, UserTg
 
 
@@ -77,6 +78,11 @@ class BackgroundTaskTests(TestCase):
             self.assertTrue(process_claimed_task(claimed))
 
         self.assertEqual(dispatch_mock.call_count, 2)
+        for call in dispatch_mock.call_args_list:
+            self.assertEqual(
+                call.args[2]["reply_markup"],
+                CONNECTION_REMINDER_REPLY_MARKUP,
+            )
         self.assertFalse(
             BackgroundTask.objects.filter(
                 task_type=CONNECTION_REMINDER_TASK,

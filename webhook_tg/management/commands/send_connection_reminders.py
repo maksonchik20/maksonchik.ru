@@ -7,7 +7,11 @@ from pathlib import Path
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from webhook_tg.config import CONNECTION_REMINDER_TEXT, START_PHOTO_ID
+from webhook_tg.config import (
+    CONNECTION_REMINDER_REPLY_MARKUP,
+    CONNECTION_REMINDER_TEXT,
+    START_PHOTO_ID,
+)
 from webhook_tg.models import UserTg
 from webhook_tg.subscriptions import notify_access_expired
 from webhook_tg.telegram import dispatch_telegram_request
@@ -80,6 +84,7 @@ class Command(BaseCommand):
                         "caption": CONNECTION_REMINDER_TEXT,
                         "parse_mode": "HTML",
                         "disable_web_page_preview": True,
+                        "reply_markup": CONNECTION_REMINDER_REPLY_MARKUP,
                     },
                 )
                 if ok:
