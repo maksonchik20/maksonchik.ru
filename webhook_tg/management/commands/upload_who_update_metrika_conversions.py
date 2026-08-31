@@ -9,7 +9,7 @@ from webhook_tg.metrika_offline import (
 
 
 class Command(BaseCommand):
-    help = "Автоматически загружает /start и подключения WhoUpdate в Яндекс Метрику"
+    help = "Автоматически загружает /start, подключения и оплаты WhoUpdate в Яндекс Метрику"
 
     def add_arguments(self, parser):
         parser.add_argument("--limit", type=int, default=500)

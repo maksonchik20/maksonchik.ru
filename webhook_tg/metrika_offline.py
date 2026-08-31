@@ -6,11 +6,16 @@ from collections import defaultdict
 from datetime import timedelta
 
 import requests
+from django.conf import settings
 from django.db.models import F, Q
 from django.utils import timezone
 
 from .metrics import METRIKA_OFFLINE_EVENTS, observe_metric
-from .models import WhoUpdateMetrikaConversion, WhoUpdateOnboardingFunnel
+from .models import (
+    WhoUpdateMetrikaConversion,
+    WhoUpdateOnboardingFunnel,
+    WhoUpdatePaymentOrder,
+)
 
 
 UPLOAD_URL = (
@@ -24,6 +29,7 @@ UPLOAD_STATUS_URL = (
 TERMINAL_SUCCESS_STATUSES = {"PROCESSED"}
 TERMINAL_FAILURE_STATUSES = {"LINKAGE_FAILURE"}
 METRIKA_SESSION = requests.Session()
+PURCHASE_TARGET = "who_update_purchase"
 
 
 def _identifier_for(funnel: WhoUpdateOnboardingFunnel) -> tuple[str, str] | None:
@@ -103,6 +109,53 @@ def sync_conversion_queue(
     return created_count
 
 
+def queue_purchase_conversion(
+    order: WhoUpdatePaymentOrder,
+    *,
+    occurred_at=None,
+    counter_id: int | None = None,
+    attribution_days: int = 20,
+) -> WhoUpdateMetrikaConversion | None:
+    """Ставит подтверждённую оплату в очередь Метрики ровно один раз."""
+    occurred_at = occurred_at or order.paid_at or timezone.now()
+    earliest = occurred_at - timedelta(days=attribution_days)
+    identifiers = Q(yclid__gt="") | Q(metrika_client_id__gt="")
+    funnel = (
+        WhoUpdateOnboardingFunnel.objects.filter(
+            identifiers,
+            user=order.user,
+            landing_viewed_at__gte=earliest,
+            landing_viewed_at__lte=occurred_at,
+        )
+        .order_by("-landing_viewed_at", "-id")
+        .first()
+    )
+    if funnel is None:
+        return None
+
+    identifier = _identifier_for(funnel)
+    if identifier is None:
+        return None
+    identifier_type, identifier_value = identifier
+    conversion, _ = WhoUpdateMetrikaConversion.objects.get_or_create(
+        payment_order=order,
+        defaults={
+            "funnel": funnel,
+            "event_type": WhoUpdateMetrikaConversion.EventType.PURCHASE,
+            "target": PURCHASE_TARGET,
+            "counter_id": counter_id
+            or int(getattr(settings, "YANDEX_METRIKA_COUNTER_ID", 112093587)),
+            "occurred_at": occurred_at,
+            "identifier_type": identifier_type,
+            "identifier": identifier_value,
+            "value": order.amount,
+            "currency": "RUB",
+            "next_attempt_at": occurred_at,
+        },
+    )
+    return conversion
+
+
 def _csv_payload(conversions: list[WhoUpdateMetrikaConversion]) -> tuple[str, bytes]:
     identifier_type = conversions[0].identifier_type
     identifier_header = (
@@ -112,13 +165,15 @@ def _csv_payload(conversions: list[WhoUpdateMetrikaConversion]) -> tuple[str, by
     )
     stream = io.StringIO(newline="")
     writer = csv.writer(stream)
-    writer.writerow((identifier_header, "Target", "DateTime"))
+    writer.writerow((identifier_header, "Target", "DateTime", "Price", "Currency"))
     for conversion in conversions:
         writer.writerow(
             (
                 conversion.identifier,
                 conversion.target,
                 int(conversion.occurred_at.timestamp()),
+                format(conversion.value, "f") if conversion.value is not None else "",
+                conversion.currency,
             )
         )
     return identifier_header.lower(), stream.getvalue().encode("utf-8")

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from unittest.mock import Mock, patch
 
 import requests
@@ -6,11 +7,17 @@ from django.test import TestCase
 from django.utils import timezone
 
 from .metrika_offline import (
+    _csv_payload,
     reconcile_submitted_conversions,
     sync_conversion_queue,
     upload_pending_conversions,
 )
-from .models import WhoUpdateMetrikaConversion, WhoUpdateOnboardingFunnel
+from .models import (
+    UserTg,
+    WhoUpdateMetrikaConversion,
+    WhoUpdateOnboardingFunnel,
+    WhoUpdatePaymentOrder,
+)
 
 
 class MetrikaOfflineConversionTests(TestCase):
@@ -69,6 +76,38 @@ class MetrikaOfflineConversionTests(TestCase):
         )
         self.assertEqual(WhoUpdateMetrikaConversion.objects.count(), 2)
 
+    def test_purchase_csv_contains_actual_revenue(self):
+        user = UserTg.objects.create(user_id=9001, chat_id=9001)
+        self.funnel.user = user
+        self.funnel.save(update_fields=["user"])
+        order = WhoUpdatePaymentOrder.objects.create(
+            user=user,
+            plan=WhoUpdatePaymentOrder.Plan.THREE_MONTHS,
+            duration_days=90,
+            amount=Decimal("199.00"),
+            status=WhoUpdatePaymentOrder.Status.PAID,
+            paid_at=self.now,
+        )
+        conversion = WhoUpdateMetrikaConversion.objects.create(
+            funnel=self.funnel,
+            payment_order=order,
+            event_type=WhoUpdateMetrikaConversion.EventType.PURCHASE,
+            target="who_update_purchase",
+            counter_id=self.counter_id,
+            occurred_at=self.now,
+            identifier_type=WhoUpdateMetrikaConversion.IdentifierType.YCLID,
+            identifier=self.funnel.yclid,
+            value=order.amount,
+            currency="RUB",
+        )
+
+        csv_kind, payload = _csv_payload([conversion])
+
+        self.assertEqual(csv_kind, "yclid")
+        self.assertIn("Yclid,Target,DateTime,Price,Currency", payload.decode("utf-8"))
+        self.assertIn("yclid-test-123,who_update_purchase", payload.decode("utf-8"))
+        self.assertIn(",199.00,RUB", payload.decode("utf-8"))
+
     @patch("webhook_tg.metrika_offline.METRIKA_SESSION.post")
     def test_upload_sends_utf8_csv_and_marks_rows_submitted(self, post):
         sync_conversion_queue(counter_id=self.counter_id, now=self.now)
@@ -96,7 +135,7 @@ class MetrikaOfflineConversionTests(TestCase):
         csv_text = payload.decode("utf-8")
         self.assertEqual(filename, "who-update-yclid.csv")
         self.assertEqual(mime, "text/csv")
-        self.assertIn("Yclid,Target,DateTime", csv_text)
+        self.assertIn("Yclid,Target,DateTime,Price,Currency", csv_text)
         self.assertIn("yclid-test-123,who_update_start", csv_text)
         self.assertIn("yclid-test-123,who_update_connected", csv_text)
         self.assertFalse(

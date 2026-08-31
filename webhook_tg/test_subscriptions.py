@@ -5,7 +5,13 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from .models import TelegramOutbox, UserTg, WhoUpdatePaymentOrder
+from .models import (
+    TelegramOutbox,
+    UserTg,
+    WhoUpdateMetrikaConversion,
+    WhoUpdateOnboardingFunnel,
+    WhoUpdatePaymentOrder,
+)
 from .payment_views import fulfill_order
 from .subscriptions import (
     OWNER_TELEGRAM_ID,
@@ -128,6 +134,12 @@ class WhoUpdatePaymentTests(TestCase):
             access_unlimited=False,
             access_expires_at=timezone.now() + timedelta(days=2),
         )
+        WhoUpdateOnboardingFunnel.objects.create(
+            user=self.user,
+            yclid="paid-yandex-click",
+            landing_viewed_at=timezone.now() - timedelta(days=1),
+            telegram_started_at=timezone.now() - timedelta(days=1),
+        )
         self.order = WhoUpdatePaymentOrder.objects.create(
             user=self.user,
             plan=WhoUpdatePaymentOrder.Plan.MONTH,
@@ -193,6 +205,13 @@ class WhoUpdatePaymentTests(TestCase):
         )
         self.assertIn("получена оплата", notification.payload["text"])
         self.assertIn("99.00 ₽", notification.payload["text"])
+        conversion = WhoUpdateMetrikaConversion.objects.get(payment_order=self.order)
+        self.assertEqual(conversion.event_type, WhoUpdateMetrikaConversion.EventType.PURCHASE)
+        self.assertEqual(conversion.target, "who_update_purchase")
+        self.assertEqual(conversion.identifier, "paid-yandex-click")
+        self.assertEqual(conversion.value, Decimal("99.00"))
+        self.assertEqual(conversion.currency, "RUB")
+        self.assertEqual(WhoUpdateMetrikaConversion.objects.filter(payment_order=self.order).count(), 1)
 
     @patch("webhook_tg.payment_views.get_payment")
     def test_forwarded_webhook_fulfills_order(self, get_payment_mock):

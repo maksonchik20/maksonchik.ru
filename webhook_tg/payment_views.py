@@ -22,6 +22,7 @@ from .outbox import enqueue_outbox
 from .subscriptions import CHECKOUT_SIGNING_SALT, plan_config_for_user
 from .telegram import tg_send_message
 from .metrics import PAYMENT_EVENTS, observe_metric
+from .metrika_offline import queue_purchase_conversion
 from .yookassa import YooKassaError, create_payment, get_payment, is_webhook_ip
 
 
@@ -125,6 +126,7 @@ def fulfill_order(order, payment_id):
             "access_expires_at_after",
         ]
     )
+    queue_purchase_conversion(order, occurred_at=now)
     observe_metric(PAYMENT_EVENTS, 1, {"status": "paid", "plan": order.plan})
 
     expires = timezone.localtime(bot_user.access_expires_at)

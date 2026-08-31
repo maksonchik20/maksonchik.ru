@@ -257,6 +257,7 @@ class WhoUpdateMetrikaConversion(models.Model):
     class EventType(models.TextChoices):
         START = "start", "/start"
         CONNECTED = "connected", "Полное подключение"
+        PURCHASE = "purchase", "Покупка подписки"
 
     class IdentifierType(models.TextChoices):
         YCLID = "yclid", "YCLID"
@@ -274,6 +275,14 @@ class WhoUpdateMetrikaConversion(models.Model):
         related_name="metrika_conversions",
         on_delete=models.CASCADE,
     )
+    payment_order = models.OneToOneField(
+        "WhoUpdatePaymentOrder",
+        verbose_name="Оплата",
+        related_name="metrika_conversion",
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+    )
     event_type = models.CharField(max_length=16, choices=EventType.choices)
     target = models.CharField(max_length=64)
     counter_id = models.PositiveBigIntegerField(
@@ -284,6 +293,19 @@ class WhoUpdateMetrikaConversion(models.Model):
     occurred_at = models.DateTimeField(db_index=True)
     identifier_type = models.CharField(max_length=16, choices=IdentifierType.choices)
     identifier = models.CharField(max_length=255)
+    value = models.DecimalField(
+        verbose_name="Ценность конверсии",
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+    )
+    currency = models.CharField(
+        verbose_name="Валюта",
+        max_length=3,
+        blank=True,
+        default="",
+    )
     status = models.CharField(
         max_length=16,
         choices=Status.choices,
@@ -307,6 +329,7 @@ class WhoUpdateMetrikaConversion(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=("funnel", "event_type"),
+                condition=models.Q(payment_order__isnull=True),
                 name="wu_metrika_funnel_event_unique",
             ),
         ]
