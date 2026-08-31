@@ -1,0 +1,13 @@
+[Unit]
+Description=Backup WhoUpdate PostgreSQL
+Requires=who-update-postgresql.service
+After=who-update-postgresql.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/who-update-backup-postgresql
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

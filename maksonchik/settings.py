@@ -121,12 +121,60 @@ TEMPLATES = [
 WSGI_APPLICATION = 'maksonchik.wsgi.application'
 
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+try:
+    from env import (
+        DATABASE_ENGINE as ENV_DATABASE_ENGINE,
+        DATABASE_HOST as ENV_DATABASE_HOST,
+        DATABASE_NAME as ENV_DATABASE_NAME,
+        DATABASE_PASSWORD as ENV_DATABASE_PASSWORD,
+        DATABASE_PORT as ENV_DATABASE_PORT,
+        DATABASE_USER as ENV_DATABASE_USER,
+    )
+except ImportError:
+    ENV_DATABASE_ENGINE = "sqlite"
+    ENV_DATABASE_HOST = "127.0.0.1"
+    ENV_DATABASE_NAME = "maksonchik"
+    ENV_DATABASE_PASSWORD = ""
+    ENV_DATABASE_PORT = "5432"
+    ENV_DATABASE_USER = "maksonchik_app"
+
+DATABASE_ENGINE = os.environ.get("DATABASE_ENGINE", ENV_DATABASE_ENGINE).lower()
+
+if DATABASE_ENGINE in {"postgres", "postgresql"}:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("DATABASE_NAME", ENV_DATABASE_NAME),
+            "USER": os.environ.get("DATABASE_USER", ENV_DATABASE_USER),
+            "PASSWORD": os.environ.get("DATABASE_PASSWORD", ENV_DATABASE_PASSWORD),
+            "HOST": os.environ.get("DATABASE_HOST", ENV_DATABASE_HOST),
+            "PORT": os.environ.get("DATABASE_PORT", ENV_DATABASE_PORT),
+            "CONN_MAX_AGE": 60,
+            "CONN_HEALTH_CHECKS": True,
+            "OPTIONS": {
+                "connect_timeout": 5,
+                "application_name": "who-update",
+            },
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+            "OPTIONS": {"timeout": 30},
+        }
+    }
+
+# Временный источник для проверяемого переноса SQLite -> PostgreSQL.
+# Алиас создаётся только при явном указании пути и не используется production-кодом.
+SQLITE_MIGRATION_SOURCE = os.environ.get("SQLITE_MIGRATION_SOURCE", "")
+if SQLITE_MIGRATION_SOURCE:
+    DATABASES["legacy"] = {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": SQLITE_MIGRATION_SOURCE,
+        "OPTIONS": {"timeout": 30},
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {

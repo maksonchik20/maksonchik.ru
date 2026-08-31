@@ -75,7 +75,9 @@ def register_referral(invitee: UserTg, start_payload: str) -> bool:
 @transaction.atomic
 def grant_referral_reward(invitee: UserTg, at=None) -> bool:
     at = at or timezone.now()
-    invitee = UserTg.objects.select_for_update().select_related("referred_by").get(pk=invitee.pk)
+    # Lock only the invitee row. PostgreSQL cannot apply FOR UPDATE to the
+    # nullable side of the LEFT JOIN produced by select_related("referred_by").
+    invitee = UserTg.objects.select_for_update().get(pk=invitee.pk)
     if not invitee.referred_by_id or invitee.referral_rewarded_at:
         return False
 

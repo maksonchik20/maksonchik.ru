@@ -1,6 +1,7 @@
 [Unit]
 Description=WhoUpdate Telegram bot (long polling)
-After=network.target maksonchik-web.service
+Requires=who-update-postgresql.service
+After=network.target who-update-postgresql.service maksonchik-web.service
 Wants=maksonchik-web.service
 
 [Service]
@@ -10,6 +11,7 @@ Group=www-data
 WorkingDirectory=/srv/maksonchik/app
 Environment=DJANGO_SETTINGS_MODULE=maksonchik.settings
 Environment=MPLCONFIGDIR=/srv/maksonchik/.cache/matplotlib
+EnvironmentFile=-/srv/maksonchik/database.env
 ExecStart=/srv/maksonchik/venv/bin/python manage.py who_update_telegram_poll
 Restart=always
 RestartSec=5

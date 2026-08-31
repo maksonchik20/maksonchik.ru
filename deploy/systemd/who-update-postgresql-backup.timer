@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily WhoUpdate PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 Europe/Moscow
+RandomizedDelaySec=10m
+Persistent=true
+Unit=who-update-postgresql-backup.service
+
+[Install]
+WantedBy=timers.target

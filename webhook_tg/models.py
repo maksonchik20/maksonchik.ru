@@ -43,8 +43,9 @@ class AdminChatFilter(models.Model):
 
 
 class UserTg(models.Model):
-    user_id = models.IntegerField(verbose_name="User Id пользователя")
-    chat_id = models.IntegerField(verbose_name="Chat Id пользователя с ботом")
+    # Telegram identifiers are signed 64-bit values and can exceed PostgreSQL INTEGER.
+    user_id = models.BigIntegerField(verbose_name="User Id пользователя")
+    chat_id = models.BigIntegerField(verbose_name="Chat Id пользователя с ботом")
     username = models.CharField(verbose_name="Username", default="", max_length=255, blank=True, null=True)
     first_name = models.CharField(verbose_name="First name sender", default="", blank=True, null=True, max_length=255)
     business_connection_id = models.CharField(

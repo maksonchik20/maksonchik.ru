@@ -1,6 +1,7 @@
 [Unit]
 Description=Export WhoUpdate operational metrics to Yandex Monitoring
-After=network-online.target
+Requires=who-update-postgresql.service
+After=network-online.target who-update-postgresql.service
 Wants=network-online.target
 
 [Service]
@@ -10,4 +11,5 @@ Group=www-data
 WorkingDirectory=/srv/maksonchik/app
 Environment=DJANGO_SETTINGS_MODULE=maksonchik.settings
 Environment=MPLCONFIGDIR=/srv/maksonchik/.cache/matplotlib
+EnvironmentFile=-/srv/maksonchik/database.env
 ExecStart=/srv/maksonchik/venv/bin/python manage.py export_operational_metrics --limit 500

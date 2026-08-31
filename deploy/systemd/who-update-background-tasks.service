@@ -1,6 +1,7 @@
 [Unit]
-Description=WhoUpdate reliable SQLite background task worker
-After=network.target
+Description=WhoUpdate reliable background task worker
+Requires=who-update-postgresql.service
+After=network.target who-update-postgresql.service
 
 [Service]
 Type=simple
@@ -9,6 +10,7 @@ Group=www-data
 WorkingDirectory=/srv/maksonchik/app
 Environment=DJANGO_SETTINGS_MODULE=maksonchik.settings
 Environment=MPLCONFIGDIR=/srv/maksonchik/.cache/matplotlib
+EnvironmentFile=-/srv/maksonchik/database.env
 ExecStart=/srv/maksonchik/venv/bin/python manage.py process_background_tasks --poll-interval 1
 Restart=always
 RestartSec=2

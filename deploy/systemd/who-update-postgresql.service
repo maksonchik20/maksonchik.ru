@@ -1,0 +1,21 @@
+[Unit]
+Description=WhoUpdate PostgreSQL 17
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+RequiresMountsFor=/srv/postgresql
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/docker rm -f who-update-postgresql
+ExecStart=/usr/bin/docker run --rm --name who-update-postgresql --env-file /srv/postgresql/postgres.env --publish 127.0.0.1:5432:5432 --volume /srv/postgresql/data:/var/lib/postgresql/data --shm-size 256m --log-opt max-size=10m --log-opt max-file=3 postgres:17-bookworm postgres -c shared_buffers=1GB -c effective_cache_size=4GB -c work_mem=8MB -c maintenance_work_mem=256MB -c max_connections=50 -c password_encryption=scram-sha-256 -c wal_compression=on -c checkpoint_completion_target=0.9 -c log_min_duration_statement=1000
+ExecStartPost=/bin/bash -c 'for attempt in $(seq 1 60); do /usr/bin/docker exec who-update-postgresql pg_isready --username maksonchik_app --dbname maksonchik && exit 0; sleep 1; done; exit 1'
+ExecStop=/usr/bin/docker stop --time 60 who-update-postgresql
+Restart=always
+RestartSec=5
+TimeoutStartSec=0
+TimeoutStopSec=75
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
