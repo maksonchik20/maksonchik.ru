@@ -97,6 +97,22 @@ class WhoUpdateConnectionFunnelTests(TestCase):
         funnel.refresh_from_db()
         self.assertIsNotNone(funnel.demo_opened_at)
 
+    def test_repeated_start_update_reuses_same_funnel(self):
+        funnel = self._started_funnel(1005)
+
+        repeated = register_telegram_start(
+            self.user,
+            "",
+            update_id=1005,
+            started_at=timezone.now(),
+        )
+
+        self.assertEqual(repeated.pk, funnel.pk)
+        self.assertEqual(
+            WhoUpdateOnboardingFunnel.objects.filter(start_update_id=1005).count(),
+            1,
+        )
+
     def test_connection_after_first_reminder_is_classified(self):
         funnel = self._started_funnel(1002)
         record_reminder_sent(self.user, 1, funnel_pk=funnel.pk)

@@ -60,7 +60,12 @@ from .inner_models.BusinessConnection import BusinessConnection
 from .idempotency import acquire_webhook_update
 from .incoming import enqueue_incoming_update
 from .background_tasks import cancel_connection_reminders, schedule_connection_reminders
-from .outbox import enqueue_outbox, edit_notification_idempotency_key
+from .outbox import (
+    enqueue_and_deliver,
+    enqueue_outbox,
+    edit_notification_idempotency_key,
+    send_message_reliably,
+)
 from .event_reporter import report_who_update_event
 from .events_chart import parse_events_period, PERIOD_HELP
 from .telegram import telegram_webhook_secret
@@ -206,6 +211,7 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
     username = msg.get("from", {}).get("username")
     first_name = msg.get("from", {}).get("first_name")
     command = _bot_command(text) if text else ""
+    update_id = int(data["update_id"])
     if command == "/start" and is_message_to_bot(data):
         observe_metric(USER_STARTS, 1)
         bot_user, created = _init_user_bot(
@@ -220,12 +226,16 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
         start_payload = start_parts[1] if len(start_parts) > 1 else ""
         register_referral(bot_user, start_payload)
         if created:
-            tg_send_message(OWNER_CHAT_ID, _owner_start_notification(bot_user))
+            send_message_reliably(
+                OWNER_CHAT_ID,
+                _owner_start_notification(bot_user),
+                idempotency_key=f"command:{update_id}:owner-start",
+            )
         now = timezone.now()
         onboarding_funnel = register_telegram_start(
             bot_user,
             start_payload,
-            update_id=int(data["update_id"]),
+            update_id=update_id,
             started_at=now,
         )
         start_trial_if_needed(bot_user, at=now)
@@ -245,32 +255,43 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
         schedule_connection_reminders(
             bot_user,
             started_at=now,
-            start_update_id=int(data["update_id"]),
+            start_update_id=update_id,
             onboarding_funnel_id=onboarding_funnel.pk,
         )
         if bot_user.has_active_access(now):
-            send_meeting_message(chat_id)
+            send_meeting_message(chat_id, update_id=update_id)
         else:
-            tg_send_message(
+            send_message_reliably(
                 chat_id,
                 expired_access_text(bot_user),
+                idempotency_key=f"command:{update_id}:expired-access",
                 reply_markup=subscription_keyboard(bot_user),
             )
     elif command in ("/status", "/subscription", "/subscribe") and is_message_to_bot(data):
         bot_user = init_user_bot(from_user_id, chat_id, username, first_name)
         apply_rollout_policy(bot_user)
-        tg_send_message(
+        send_message_reliably(
             chat_id,
             access_status_text(bot_user),
+            idempotency_key=f"command:{update_id}:status",
             reply_markup=subscription_keyboard(bot_user) if not bot_user.access_unlimited else None,
         )
     elif command in ("/referral", "/ref") and is_message_to_bot(data):
         bot_user = init_user_bot(from_user_id, chat_id, username, first_name)
-        tg_send_message(chat_id, referral_text(bot_user))
+        send_message_reliably(
+            chat_id,
+            referral_text(bot_user),
+            idempotency_key=f"command:{update_id}:referral",
+        )
     elif command == "/history" and is_message_to_bot(data):
         bot_user = init_user_bot(from_user_id, chat_id, username, first_name)
-        handle_history_command(chat_id, bot_user, text)
-    elif is_message_to_bot(data) and handle_mute_commands(chat_id, from_user_id, text):
+        handle_history_command(chat_id, bot_user, text, update_id=update_id)
+    elif is_message_to_bot(data) and handle_mute_commands(
+        chat_id,
+        from_user_id,
+        text,
+        update_id=update_id,
+    ):
         pass
     elif is_message_to_bot(data) and _handle_events_command(chat_id, text):
         pass
@@ -341,14 +362,19 @@ def _webhook_tg_response(request: HttpRequest):
     return JsonResponse({"ok": True})
 
 
-def send_meeting_message(chat_id):
-    if not send_photo(
+def send_meeting_message(chat_id, *, update_id: int):
+    return enqueue_and_deliver(
         chat_id=chat_id,
-        photo_id=START_PHOTO_ID,
-        caption=START_TEXT,
-        reply_markup=START_REPLY_MARKUP,
-    ):
-        raise RuntimeError(f"Failed to send /start photo to chat_id={chat_id}")
+        method=TelegramOutbox.Method.SEND_PHOTO,
+        payload={
+            "photo": START_PHOTO_ID,
+            "caption": START_TEXT,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+            "reply_markup": START_REPLY_MARKUP,
+        },
+        idempotency_key=f"command:{update_id}:start-photo",
+    )
 
 
 def _handle_demo_callback(callback: dict) -> bool:

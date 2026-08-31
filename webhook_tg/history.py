@@ -9,7 +9,7 @@ from django.db.models.functions import Lower
 from django.utils import timezone
 
 from .models import FileType, Message, UserTg
-from .telegram import send_document_bytes, tg_send_message
+from .outbox import send_document_bytes_reliably, send_message_reliably
 
 
 HISTORY_HELP = (
@@ -61,17 +61,29 @@ def _build_history_export(username: str, messages) -> bytes:
     return ("\ufeff" + "\n".join(lines)).encode("utf-8")
 
 
-def handle_history_command(chat_id: int, bot_user: UserTg, text: str) -> bool:
+def handle_history_command(
+    chat_id: int,
+    bot_user: UserTg,
+    text: str,
+    *,
+    update_id: int,
+) -> bool:
     """Отправляет TXT со всеми сообщениями указанного пользователя."""
+    key_prefix = f"command:{update_id}:history"
     username = _parse_history_username(text)
     if not username:
-        tg_send_message(chat_id, HISTORY_HELP)
+        send_message_reliably(
+            chat_id,
+            HISTORY_HELP,
+            idempotency_key=f"{key_prefix}:help",
+        )
         return True
 
     if not bot_user.business_connection_id:
-        tg_send_message(
+        send_message_reliably(
             chat_id,
             "Сначала подключите WhoUpdate к автоматизации чатов, затем повторите команду.",
+            idempotency_key=f"{key_prefix}:not-connected",
         )
         return True
 
@@ -82,13 +94,14 @@ def handle_history_command(chat_id: int, bot_user: UserTg, text: str) -> bool:
         ).order_by("created_at", "message_id")
     )
     if not messages:
-        tg_send_message(
+        send_message_reliably(
             chat_id,
             f"Сообщений от <b>@{html.escape(username)}</b> пока не найдено.",
+            idempotency_key=f"{key_prefix}:empty",
         )
         return True
 
-    sent = send_document_bytes(
+    send_document_bytes_reliably(
         chat_id,
         _build_history_export(username, messages),
         filename=f"history_{username}.txt",
@@ -96,7 +109,6 @@ def handle_history_command(chat_id: int, bot_user: UserTg, text: str) -> bool:
             f"История сообщений от <b>@{html.escape(username)}</b>: "
             f"{len(messages)} шт."
         ),
+        idempotency_key=f"{key_prefix}:document",
     )
-    if not sent:
-        tg_send_message(chat_id, "Не удалось отправить файл истории. Попробуйте позже.")
     return True

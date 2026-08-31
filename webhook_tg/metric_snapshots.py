@@ -41,11 +41,14 @@ def _age_seconds(created_at, now) -> float:
 def collect_database_gauges() -> None:
     now = timezone.now()
 
-    outbox = TelegramOutbox.objects.aggregate(
+    pending_outbox = TelegramOutbox.objects.filter(
+        status=TelegramOutbox.Status.PENDING,
+    )
+    outbox = pending_outbox.aggregate(
         size=Max("id"), oldest=Min("created_at"), max_attempts=Max("attempts")
     )
-    set_gauge(OUTBOX_SIZE, TelegramOutbox.objects.count())
-    set_gauge(OUTBOX_DUE, TelegramOutbox.objects.filter(next_attempt_at__lte=now).count())
+    set_gauge(OUTBOX_SIZE, pending_outbox.count())
+    set_gauge(OUTBOX_DUE, pending_outbox.filter(next_attempt_at__lte=now).count())
     set_gauge(OUTBOX_OLDEST_AGE, _age_seconds(outbox["oldest"], now))
     set_gauge(OUTBOX_MAX_ATTEMPTS, outbox["max_attempts"] or 0)
 

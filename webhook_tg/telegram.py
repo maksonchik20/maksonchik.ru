@@ -478,8 +478,29 @@ def send_document_bytes(
     timeout: int = 60,
 ) -> bool:
     """Загружает и отправляет документ из памяти."""
+    ok, _ = dispatch_document_bytes(
+        chat_id,
+        document_bytes,
+        filename=filename,
+        caption=caption,
+        content_type=content_type,
+        timeout=timeout,
+    )
+    return ok
+
+
+def dispatch_document_bytes(
+    chat_id,
+    document_bytes: bytes,
+    *,
+    filename: str = "messages.txt",
+    caption: str = "",
+    content_type: str = "text/plain; charset=utf-8",
+    timeout: int = 60,
+) -> tuple[bool, str]:
+    """sendDocument для байтов с текстом ошибки, пригодным для retry/outbox."""
     if not chat_id or not document_bytes:
-        return False
+        return False, "empty chat_id or document"
 
     data = {"chat_id": chat_id}
     if caption:
@@ -497,19 +518,21 @@ def send_document_bytes(
         response = _telegram_post("sendDocument", data=data, files=files, timeout=timeout)
         result = response.json()
     except (requests.RequestException, ValueError) as exc:
-        logger.error("sendDocument bytes failed chat_id=%s: %s", chat_id, _safe_telegram_error(exc))
-        return False
+        error = _safe_telegram_error(exc)
+        logger.error("sendDocument bytes failed chat_id=%s: %s", chat_id, error)
+        return False, error
 
     if not result.get("ok"):
+        error = str(result.get("description") or result)
         logger.error("sendDocument bytes API error chat_id=%s response=%s", chat_id, result)
-        return False
+        return False, error
     log_bot_outgoing(
         chat_id=chat_id,
         method="sendDocument",
         payload={"caption": caption, "document": filename},
         result=result.get("result"),
     )
-    return True
+    return True, ""
 
 
 def delete_business_messages(

@@ -601,12 +601,18 @@ class EditNotificationSent(models.Model):
 
 
 class TelegramOutbox(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Ожидает"
+        SENT = "sent", "Отправлено"
+        DROPPED = "dropped", "Не доставляется"
+
     class Method(models.TextChoices):
         SEND_MESSAGE = "sendMessage", "sendMessage"
         SEND_PHOTO = "sendPhoto", "sendPhoto"
         SEND_AUDIO = "sendAudio", "sendAudio"
         SEND_VIDEO = "sendVideo", "sendVideo"
         SEND_DOCUMENT = "sendDocument", "sendDocument"
+        SEND_DOCUMENT_BYTES = "sendDocumentBytes", "sendDocumentBytes"
 
     chat_id = models.BigIntegerField(verbose_name="Chat id")
     method = models.CharField(
@@ -615,6 +621,13 @@ class TelegramOutbox(models.Model):
         choices=Method.choices,
     )
     payload = models.JSONField(verbose_name="Тело запроса (без chat_id)")
+    status = models.CharField(
+        verbose_name="Статус",
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
     idempotency_key = models.CharField(
         verbose_name="Ключ идемпотентности",
         max_length=128,
@@ -626,13 +639,20 @@ class TelegramOutbox(models.Model):
     next_attempt_at = models.DateTimeField(verbose_name="Следующая попытка", db_index=True)
     last_error = models.TextField(verbose_name="Последняя ошибка", blank=True, default="")
     created_at = models.DateTimeField(verbose_name="Создано", auto_now_add=True)
+    sent_at = models.DateTimeField(verbose_name="Отправлено", blank=True, null=True)
 
     class Meta:
         verbose_name = "Исходящее сообщение (очередь)"
         verbose_name_plural = "Исходящие сообщения (очередь)"
+        indexes = [
+            models.Index(
+                fields=["status", "next_attempt_at"],
+                name="wu_outbox_status_due",
+            ),
+        ]
 
     def __str__(self):
-        return f"{self.method} → {self.chat_id} (attempts={self.attempts})"
+        return f"{self.method} → {self.chat_id}: {self.status} (attempts={self.attempts})"
 
 
 class BotOutgoingMessage(models.Model):

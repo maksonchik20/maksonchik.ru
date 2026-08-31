@@ -53,6 +53,14 @@ def register_telegram_start(
     update_id: int,
     started_at,
 ) -> WhoUpdateOnboardingFunnel:
+    existing = (
+        WhoUpdateOnboardingFunnel.objects.select_for_update()
+        .filter(start_update_id=update_id)
+        .first()
+    )
+    if existing is not None:
+        return existing
+
     payload = str(start_payload or "").strip()
     funnel = None
     if payload.startswith(TRACKING_PREFIX):

@@ -1,10 +1,10 @@
 [Unit]
-Description=Process WhoUpdate Telegram outbox every 10 seconds
+Description=Process WhoUpdate Telegram outbox every 2 seconds
 
 [Timer]
 OnBootSec=30s
-OnUnitActiveSec=10s
-AccuracySec=2s
+OnUnitActiveSec=2s
+AccuracySec=500ms
 Persistent=true
 Unit=who-update-outbox.service
 

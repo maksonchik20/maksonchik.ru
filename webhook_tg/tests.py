@@ -13,7 +13,15 @@ from .config import (
     START_REPLY_MARKUP,
     START_TEXT,
 )
-from .models import BackgroundTask, Message, FileType, TelegramIncomingUpdate, UserTg
+from .models import (
+    BackgroundTask,
+    Message,
+    FileType,
+    TelegramIncomingUpdate,
+    TelegramOutbox,
+    UserTg,
+    WhoUpdateOnboardingFunnel,
+)
 from .outbox import process_outbox
 from .incoming import claim_next_update, process_claimed_update
 
@@ -548,6 +556,90 @@ class IncomingWebhookQueueTests(TestCase):
             if "sendPhoto" in str(get_post_call_args(call)[0])
         ]
         self.assertEqual(len(send_photo_calls), 1)
+
+    def test_start_timeout_is_queued_and_input_is_marked_done(self):
+        payload = make_start_payload(update_id=880006)
+        UserTg.objects.create(
+            user_id=payload["message"]["from"]["id"],
+            chat_id=payload["message"]["chat"]["id"],
+            username=payload["message"]["from"]["username"],
+        )
+        self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        item = claim_next_update(TelegramIncomingUpdate.Queue.PRIORITY)
+
+        with patch(
+            "webhook_tg.outbox.dispatch_telegram_request",
+            return_value=(False, "Telegram API timeout"),
+        ):
+            self.assertTrue(process_claimed_update(item))
+
+        item.refresh_from_db()
+        self.assertEqual(item.status, TelegramIncomingUpdate.Status.DONE)
+        queued = TelegramOutbox.objects.get(
+            idempotency_key="command:880006:start-photo"
+        )
+        self.assertEqual(queued.status, TelegramOutbox.Status.PENDING)
+        self.assertEqual(queued.attempts, 1)
+        self.assertEqual(
+            WhoUpdateOnboardingFunnel.objects.filter(start_update_id=880006).count(),
+            1,
+        )
+
+        TelegramOutbox.objects.filter(pk=queued.pk).update(
+            next_attempt_at=timezone.now() - timedelta(seconds=1)
+        )
+        with patch(
+            "webhook_tg.outbox.dispatch_telegram_request",
+            return_value=(True, ""),
+        ) as dispatch_mock:
+            stats = process_outbox()
+        self.assertEqual(stats["sent"], 1)
+        self.assertEqual(dispatch_mock.call_count, 1)
+
+        from .views import process_telegram_update
+
+        with patch(
+            "webhook_tg.outbox.dispatch_telegram_request",
+            return_value=(True, ""),
+        ) as duplicate_dispatch:
+            process_telegram_update(payload, use_idempotency=False)
+        duplicate_dispatch.assert_not_called()
+        self.assertEqual(
+            WhoUpdateOnboardingFunnel.objects.filter(start_update_id=880006).count(),
+            1,
+        )
+
+    def test_blocked_start_is_dropped_without_retrying_input(self):
+        payload = make_start_payload(update_id=880007)
+        UserTg.objects.create(
+            user_id=payload["message"]["from"]["id"],
+            chat_id=payload["message"]["chat"]["id"],
+            username=payload["message"]["from"]["username"],
+        )
+        self.client.post(
+            "/webhook_tg/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        item = claim_next_update(TelegramIncomingUpdate.Queue.PRIORITY)
+
+        with patch(
+            "webhook_tg.outbox.dispatch_telegram_request",
+            return_value=(False, "Forbidden: bot was blocked by the user"),
+        ):
+            self.assertTrue(process_claimed_update(item))
+
+        item.refresh_from_db()
+        self.assertEqual(item.status, TelegramIncomingUpdate.Status.DONE)
+        delivery = TelegramOutbox.objects.get(
+            idempotency_key="command:880007:start-photo"
+        )
+        self.assertEqual(delivery.status, TelegramOutbox.Status.DROPPED)
+        self.assertEqual(delivery.attempts, 0)
 
 
 @override_settings(

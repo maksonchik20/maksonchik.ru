@@ -9,6 +9,7 @@ from datetime import timedelta
 from django.utils import timezone
 
 from .models import MuteSetup, MutedPeer
+from .outbox import send_message_reliably
 from .telegram import (
     answer_callback_query,
     delete_business_messages,
@@ -143,7 +144,7 @@ def is_username_muted(owner_user_id: int, username: str | None) -> bool:
     return True
 
 
-def handle_mute_commands(chat_id, user_id, text: str) -> bool:
+def handle_mute_commands(chat_id, user_id, text: str, *, update_id: int) -> bool:
     """Обработка /mute /unmute /mutelist в личке с ботом. True если команда распознана."""
     if not text:
         return False
@@ -153,6 +154,14 @@ def handle_mute_commands(chat_id, user_id, text: str) -> bool:
 
     if user_id is None or chat_id is None:
         return True
+
+    def reply(message: str, *, reply_markup: dict | None = None):
+        return send_message_reliably(
+            chat_id,
+            message,
+            idempotency_key=f"command:{update_id}:mute-response",
+            reply_markup=reply_markup,
+        )
 
     if command == "/mutelist":
         rows = list(
@@ -166,7 +175,7 @@ def handle_mute_commands(chat_id, user_id, text: str) -> bool:
                 continue
             active.append(row)
         if not active:
-            tg_send_message(chat_id, "Список mute пуст.\n\n" + MUTE_HELP)
+            reply("Список mute пуст.\n\n" + MUTE_HELP)
             return True
         lines = ["Заглушены:"]
         for row in active:
@@ -175,12 +184,12 @@ def handle_mute_commands(chat_id, user_id, text: str) -> bool:
                 f"• @{row.muted_username} — до {_format_expires(row.expires_at)}, {notify}"
             )
         lines.append("\nСнять: <code>/unmute @username</code>")
-        tg_send_message(chat_id, "\n".join(lines))
+        reply("\n".join(lines))
         return True
 
     username = parse_mute_username(text)
     if not username:
-        tg_send_message(chat_id, MUTE_HELP)
+        reply(MUTE_HELP)
         return True
 
     if command == "/unmute":
@@ -191,9 +200,9 @@ def handle_mute_commands(chat_id, user_id, text: str) -> bool:
             owner_user_id=int(user_id), muted_username=username
         ).delete()
         if deleted:
-            tg_send_message(chat_id, f"@{username} снят с mute.")
+            reply(f"@{username} снят с mute.")
         else:
-            tg_send_message(chat_id, f"@{username} не был в mute.\n\n" + MUTE_HELP)
+            reply(f"@{username} не был в mute.\n\n" + MUTE_HELP)
         return True
 
     # /mute → wizard: сначала срок
@@ -203,8 +212,7 @@ def handle_mute_commands(chat_id, user_id, text: str) -> bool:
         owner_chat_id=int(chat_id),
         muted_username=username,
     )
-    tg_send_message(
-        chat_id,
+    reply(
         f"Mute для <b>@{html.escape(username)}</b>\n\nНа какое время?",
         reply_markup=_duration_keyboard(setup.id),
     )

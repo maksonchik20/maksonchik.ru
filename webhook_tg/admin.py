@@ -591,11 +591,21 @@ class BackgroundTaskAdmin(admin.ModelAdmin):
 
 @admin.register(TelegramOutbox)
 class TelegramOutboxAdmin(admin.ModelAdmin):
-    list_display = ("id", "method", "chat_id", "attempts", "next_attempt_at", "created_at", "idempotency_key")
-    list_filter = ("method",)
+    list_display = (
+        "id",
+        "status",
+        "method",
+        "chat_id",
+        "attempts",
+        "next_attempt_at",
+        "sent_at",
+        "created_at",
+        "idempotency_key",
+    )
+    list_filter = ("status", "method")
     search_fields = ("chat_id", "idempotency_key", "last_error")
     ordering = ("next_attempt_at",)
-    readonly_fields = ("created_at", "payload", "last_error")
+    readonly_fields = ("created_at", "sent_at", "payload", "last_error")
 
     def has_module_permission(self, request):
         return request.user.is_superuser
