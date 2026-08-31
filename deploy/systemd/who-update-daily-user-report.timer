@@ -1,0 +1,11 @@
+[Unit]
+Description=Send WhoUpdate user metrics every day at 23:00 Moscow time
+
+[Timer]
+OnCalendar=*-*-* 23:00:00 Europe/Moscow
+Persistent=true
+AccuracySec=1s
+Unit=who-update-daily-user-report.service
+
+[Install]
+WantedBy=timers.target

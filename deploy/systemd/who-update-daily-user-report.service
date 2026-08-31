@@ -1,0 +1,15 @@
+[Unit]
+Description=WhoUpdate daily user metrics report
+Requires=who-update-postgresql.service
+After=network-online.target who-update-postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/maksonchik/app
+Environment=DJANGO_SETTINGS_MODULE=maksonchik.settings
+Environment=MPLCONFIGDIR=/srv/maksonchik/.cache/matplotlib
+EnvironmentFile=-/srv/maksonchik/database.env
+ExecStart=/srv/maksonchik/venv/bin/python manage.py send_daily_user_metrics
