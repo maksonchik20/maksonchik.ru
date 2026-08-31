@@ -15,7 +15,7 @@ from webhook_tg.metrics import record_heartbeat
 
 
 class Command(BaseCommand):
-    help = "Постоянный worker надёжной SQLite-очереди фоновых задач."
+    help = "Постоянный worker надёжной очереди фоновых задач."
 
     def add_arguments(self, parser):
         parser.add_argument("--once", action="store_true")

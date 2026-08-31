@@ -531,7 +531,7 @@ class TelegramIncomingUpdate(models.Model):
 
 
 class BackgroundTask(models.Model):
-    """Надёжная SQLite-очередь отложенных фоновых действий."""
+    """Надёжная очередь отложенных фоновых действий в основной БД."""
 
     class Status(models.TextChoices):
         PENDING = "pending", "Ожидает"

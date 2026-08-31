@@ -522,7 +522,7 @@ def _handle_business_connection_update(conn: dict) -> None:
             observe_metric(BUSINESS_CONNECTION_EVENTS, 1, {"event": "connected"})
         start_trial_if_needed(bot_user, at=now)
         # Начисление само по себе идемпотентно. Выполняем его до фиксации
-        # connected-состояния: если SQLite временно занят, повтор очереди
+        # connected-состояния: если основная БД временно недоступна, повтор очереди
         # сможет закончить подключение, не потеряв реферальный бонус.
         grant_referral_reward(bot_user, at=now)
         update_fields = [
