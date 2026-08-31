@@ -1,4 +1,4 @@
-START_PHOTO_ID = "AgACAgIAAxkDAAEKAyRqJJYFv4D0Ix7NOIF7wjy8Jaq7ZgACKBhrG6BCKEmQv3TUzQcFxgEAAwIAA3gAAzsE"
+START_PHOTO_ID = "AgACAgIAAxkBAAIkkWqUrT-2LWbXPfSMQ1LlgWiuhweWAAKuHmsbxpKoSIFF1oLV1qNTAQADAgADeQADPQQ"
 START_TEXT = (
     "<b>Добро пожаловать!</b>\n\n"
     "<b>Этот бот помогает контролировать\n"
