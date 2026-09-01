@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from unittest.mock import patch
 
 from django.test import TestCase
@@ -6,12 +7,14 @@ from django.utils import timezone
 
 from .background_tasks import (
     CONNECTION_REMINDER_TASK,
+    PAYMENT_RECONCILIATION_TASK,
     claim_next_task,
     process_claimed_task,
     schedule_connection_reminders,
+    schedule_payment_reconciliation,
 )
 from .config import CONNECTION_REMINDER_REPLY_MARKUP
-from .models import BackgroundTask, UserTg
+from .models import BackgroundTask, UserTg, WhoUpdatePaymentOrder
 
 
 class BackgroundTaskTests(TestCase):
@@ -118,3 +121,72 @@ class BackgroundTaskTests(TestCase):
         self.assertEqual(task.status, BackgroundTask.Status.PENDING)
         self.assertEqual(task.attempts, 1)
         self.assertGreater(task.run_at, timezone.now())
+
+    def _payment_order(self):
+        return WhoUpdatePaymentOrder.objects.create(
+            user=self.user,
+            plan=WhoUpdatePaymentOrder.Plan.THREE_MONTHS,
+            duration_days=90,
+            amount=Decimal("199.00"),
+            yookassa_payment_id="payment-background-test",
+        )
+
+    def test_payment_reconciliation_is_scheduled_idempotently(self):
+        order = self._payment_order()
+        schedule_payment_reconciliation(order)
+        schedule_payment_reconciliation(order)
+
+        task = BackgroundTask.objects.get(task_type=PAYMENT_RECONCILIATION_TASK)
+        self.assertEqual(task.payload, {"order_pk": order.pk})
+        self.assertEqual(task.max_attempts, 32)
+
+    @patch("webhook_tg.payment_views.fulfill_order")
+    @patch("webhook_tg.background_tasks.get_payment")
+    def test_payment_reconciliation_fulfills_succeeded_order(self, get_payment_mock, fulfill):
+        order = self._payment_order()
+        get_payment_mock.return_value = {"status": "succeeded", "paid": True}
+        task = schedule_payment_reconciliation(
+            order,
+            run_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        claimed = claim_next_task(claimed_by="test-worker")
+
+        self.assertTrue(process_claimed_task(claimed))
+        fulfill.assert_called_once_with(order, order.yookassa_payment_id)
+        task.refresh_from_db()
+        self.assertEqual(task.status, BackgroundTask.Status.COMPLETED)
+
+    @patch("webhook_tg.background_tasks.get_payment")
+    def test_payment_reconciliation_retries_pending_order(self, get_payment_mock):
+        order = self._payment_order()
+        get_payment_mock.return_value = {"status": "pending", "paid": False}
+        task = schedule_payment_reconciliation(
+            order,
+            run_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        claimed = claim_next_task(claimed_by="test-worker")
+
+        self.assertFalse(process_claimed_task(claimed))
+        task.refresh_from_db()
+        self.assertEqual(task.status, BackgroundTask.Status.PENDING)
+        self.assertEqual(task.attempts, 1)
+        self.assertGreater(task.run_at, timezone.now())
+
+    @patch("webhook_tg.background_tasks.get_payment")
+    def test_payment_reconciliation_marks_canceled_order(self, get_payment_mock):
+        order = self._payment_order()
+        get_payment_mock.return_value = {"status": "canceled", "paid": False}
+        task = schedule_payment_reconciliation(
+            order,
+            run_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        claimed = claim_next_task(claimed_by="test-worker")
+
+        self.assertTrue(process_claimed_task(claimed))
+        order.refresh_from_db()
+        self.assertEqual(order.status, WhoUpdatePaymentOrder.Status.CANCELED)
+        task.refresh_from_db()
+        self.assertEqual(task.status, BackgroundTask.Status.COMPLETED)

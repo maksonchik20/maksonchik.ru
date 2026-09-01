@@ -14,12 +14,15 @@ from .config import (
     CONNECTION_REMINDER_TEXT,
     START_PHOTO_ID,
 )
-from .models import BackgroundTask, UserTg
+from .metrics import PAYMENT_EVENTS, observe_metric
+from .models import BackgroundTask, UserTg, WhoUpdatePaymentOrder
 from .telegram import dispatch_telegram_request
+from .yookassa import get_payment
 
 logger = logging.getLogger(__name__)
 
 CONNECTION_REMINDER_TASK = "send_connection_reminder"
+PAYMENT_RECONCILIATION_TASK = "reconcile_who_update_payment"
 STALE_AFTER = timedelta(minutes=5)
 MAX_BACKOFF_SECONDS = 3600
 PERMANENT_SEND_ERRORS = (
@@ -124,6 +127,23 @@ def schedule_connection_reminders(
         return tasks
 
 
+def schedule_payment_reconciliation(
+    order: WhoUpdatePaymentOrder,
+    *,
+    run_at=None,
+) -> BackgroundTask:
+    """Страхует webhook и возврат пользователя после оплаты."""
+    task, _ = enqueue_background_task(
+        task_type=PAYMENT_RECONCILIATION_TASK,
+        payload={"order_pk": order.pk},
+        run_at=run_at or timezone.now() + timedelta(seconds=30),
+        idempotency_key=f"payment-reconcile:{order.public_id}",
+        priority=20,
+        max_attempts=32,
+    )
+    return task
+
+
 def recover_stale_tasks() -> int:
     stale_before = timezone.now() - STALE_AFTER
     return BackgroundTask.objects.filter(
@@ -218,8 +238,39 @@ def _send_connection_reminder(task: BackgroundTask) -> None:
     raise RuntimeError(error)
 
 
+def _reconcile_payment(task: BackgroundTask) -> None:
+    order = WhoUpdatePaymentOrder.objects.filter(
+        pk=task.payload.get("order_pk")
+    ).first()
+    if order is None:
+        raise PermanentTaskError("WhoUpdate payment order no longer exists")
+    if order.status != WhoUpdatePaymentOrder.Status.PENDING:
+        return
+    if not order.yookassa_payment_id:
+        raise PermanentTaskError("WhoUpdate payment id is empty")
+
+    payment = get_payment(order.yookassa_payment_id)
+    status = str(payment.get("status") or "")
+    if status == "succeeded" and payment.get("paid"):
+        # fulfill_order повторно проверяет платёж и блокирует заказ в БД.
+        from .payment_views import fulfill_order
+
+        fulfill_order(order, order.yookassa_payment_id)
+        return
+    if status == "canceled":
+        changed = WhoUpdatePaymentOrder.objects.filter(
+            pk=order.pk,
+            status=WhoUpdatePaymentOrder.Status.PENDING,
+        ).update(status=WhoUpdatePaymentOrder.Status.CANCELED)
+        if changed:
+            observe_metric(PAYMENT_EVENTS, 1, {"status": "canceled", "plan": order.plan})
+        return
+    raise RuntimeError(f"ЮKassa payment status is {status or 'unknown'}")
+
+
 TASK_HANDLERS = {
     CONNECTION_REMINDER_TASK: _send_connection_reminder,
+    PAYMENT_RECONCILIATION_TASK: _reconcile_payment,
 }
 
 

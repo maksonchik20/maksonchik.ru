@@ -17,10 +17,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from .config import OWNER_CHAT_ID
+from .background_tasks import schedule_payment_reconciliation
 from .models import TelegramOutbox, UserTg, WhoUpdatePaymentOrder
 from .outbox import enqueue_outbox
 from .subscriptions import CHECKOUT_SIGNING_SALT, plan_config_for_user
-from .telegram import tg_send_message
 from .metrics import PAYMENT_EVENTS, observe_metric
 from .metrika_offline import queue_purchase_conversion
 from .yookassa import YooKassaError, create_payment, get_payment, is_webhook_ip
@@ -71,6 +71,22 @@ def _enqueue_owner_paid_notification(order, expires):
                 f"Сумма: <b>{order.amount} ₽</b>\n"
                 f"Доступ до: <b>{expires:%d.%m.%Y %H:%M}</b> МСК\n"
                 f"Заказ: <code>{order.public_id}</code>"
+            ),
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        },
+    )
+
+
+def _enqueue_user_paid_notification(order, expires):
+    enqueue_outbox(
+        chat_id=order.user.chat_id,
+        method=TelegramOutbox.Method.SEND_MESSAGE,
+        idempotency_key=f"who-update-payment-user-paid:{order.public_id}",
+        payload={
+            "text": (
+                "✅ <b>Оплата WhoUpdate прошла</b>\n\n"
+                f"Доступ продлён до <b>{expires:%d.%m.%Y %H:%M}</b> МСК."
             ),
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
@@ -130,12 +146,9 @@ def fulfill_order(order, payment_id):
     observe_metric(PAYMENT_EVENTS, 1, {"status": "paid", "plan": order.plan})
 
     expires = timezone.localtime(bot_user.access_expires_at)
+
     def notify_payment_completed():
-        tg_send_message(
-            bot_user.chat_id,
-            "✅ <b>Оплата WhoUpdate прошла</b>\n\n"
-            f"Доступ продлён до <b>{expires:%d.%m.%Y %H:%M}</b> МСК.",
-        )
+        _enqueue_user_paid_notification(order, expires)
         _enqueue_owner_paid_notification(order, expires)
 
     transaction.on_commit(notify_payment_completed)
@@ -164,7 +177,10 @@ def subscribe(request, plan, token):
         duration_days=config["days"],
         amount=config["amount"],
     )
-    return_url = request.build_absolute_uri(reverse("who_update_payment_result", args=[order.public_id]))
+    return_url = (
+        settings.WHO_UPDATE_SITE_URL.rstrip("/")
+        + reverse("who_update_payment_result", args=[order.public_id])
+    )
     try:
         payment = create_payment(
             amount=order.amount,
@@ -186,6 +202,7 @@ def subscribe(request, plan, token):
         order.save(update_fields=["status"])
         observe_metric(PAYMENT_EVENTS, 1, {"status": "failed", "plan": order.plan})
         return HttpResponse("ЮKassa не вернула ссылку на оплату.", status=502)
+    schedule_payment_reconciliation(order)
     _enqueue_owner_checkout_notification(order)
     observe_metric(PAYMENT_EVENTS, 1, {"status": "checkout", "plan": order.plan})
     return redirect(payment["confirmation_url"])

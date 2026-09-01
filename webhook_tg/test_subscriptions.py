@@ -6,12 +6,14 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from .models import (
+    BackgroundTask,
     TelegramOutbox,
     UserTg,
     WhoUpdateMetrikaConversion,
     WhoUpdateOnboardingFunnel,
     WhoUpdatePaymentOrder,
 )
+from .background_tasks import PAYMENT_RECONCILIATION_TASK
 from .payment_views import fulfill_order
 from .subscriptions import (
     OWNER_TELEGRAM_ID,
@@ -178,15 +180,24 @@ class WhoUpdatePaymentTests(TestCase):
         order = WhoUpdatePaymentOrder.objects.get(yookassa_payment_id="test-one-ruble-payment")
         self.assertEqual(order.amount, Decimal("99.00"))
         self.assertEqual(create_payment_mock.call_args.kwargs["amount"], Decimal("99.00"))
+        self.assertEqual(
+            create_payment_mock.call_args.kwargs["return_url"],
+            f"https://who-update.ru/bot/payment/{order.public_id}/",
+        )
         notification = TelegramOutbox.objects.get(
             idempotency_key=f"who-update-payment-open:{order.public_id}"
         )
         self.assertIn("переход к оплате", notification.payload["text"])
         self.assertIn("99.00 ₽", notification.payload["text"])
+        task = BackgroundTask.objects.get(
+            task_type=PAYMENT_RECONCILIATION_TASK,
+            idempotency_key=f"payment-reconcile:{order.public_id}",
+        )
+        self.assertEqual(task.payload, {"order_pk": order.pk})
+        self.assertEqual(task.max_attempts, 32)
 
-    @patch("webhook_tg.payment_views.tg_send_message", return_value=True)
     @patch("webhook_tg.payment_views.get_payment")
-    def test_fulfillment_is_verified_and_idempotent(self, get_payment_mock, send_message):
+    def test_fulfillment_is_verified_and_idempotent(self, get_payment_mock):
         get_payment_mock.return_value = self.payment_payload()
         original_expiry = self.user.access_expires_at
         with self.captureOnCommitCallbacks(execute=True):
@@ -199,12 +210,16 @@ class WhoUpdatePaymentTests(TestCase):
         self.assertEqual(self.order.status, WhoUpdatePaymentOrder.Status.PAID)
         self.assertEqual(self.user.access_expires_at, original_expiry + timedelta(days=30))
         self.assertEqual(get_payment_mock.call_count, 1)
-        send_message.assert_called_once()
         notification = TelegramOutbox.objects.get(
             idempotency_key=f"who-update-payment-paid:{self.order.public_id}"
         )
         self.assertIn("получена оплата", notification.payload["text"])
         self.assertIn("99.00 ₽", notification.payload["text"])
+        user_notification = TelegramOutbox.objects.get(
+            idempotency_key=f"who-update-payment-user-paid:{self.order.public_id}"
+        )
+        self.assertEqual(user_notification.chat_id, self.user.chat_id)
+        self.assertIn("Оплата WhoUpdate прошла", user_notification.payload["text"])
         conversion = WhoUpdateMetrikaConversion.objects.get(payment_order=self.order)
         self.assertEqual(conversion.event_type, WhoUpdateMetrikaConversion.EventType.PURCHASE)
         self.assertEqual(conversion.target, "who_update_purchase")
