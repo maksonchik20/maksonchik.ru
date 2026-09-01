@@ -5,8 +5,10 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 
+from .config import OWNER_CHAT_ID
 from .models import UserTg, WhoUpdateOnboardingFunnel
 from .user_metrics import DailyUserMetrics, collect_daily_user_metrics, daily_user_metrics_text
+from .views import _handle_stat_command
 
 
 class DailyUserMetricsTests(TestCase):
@@ -125,3 +127,52 @@ class DailyUserMetricsTests(TestCase):
 
         key = enqueue_mock.call_args.kwargs["idempotency_key"]
         self.assertRegex(key, r"^preview-user-metrics:[0-9a-f-]{36}$")
+
+
+class StatCommandTests(TestCase):
+    @patch("webhook_tg.views.send_message_reliably")
+    @patch("webhook_tg.views.collect_daily_user_metrics")
+    def test_owner_receives_current_daily_report(self, collect_mock, send_mock):
+        metrics = DailyUserMetrics(
+            day=timezone.localdate(),
+            unique_landing_visitors=10,
+            landing_views=15,
+            started_users=7,
+            connected_users=4,
+            disconnected_users=2,
+            expired_users=3,
+        )
+        collect_mock.return_value = metrics
+
+        handled = _handle_stat_command(
+            OWNER_CHAT_ID,
+            int(OWNER_CHAT_ID),
+            "/stat",
+            update_id=123,
+        )
+
+        self.assertTrue(handled)
+        send_mock.assert_called_once_with(
+            OWNER_CHAT_ID,
+            daily_user_metrics_text(metrics),
+            idempotency_key="command:123:stat",
+        )
+
+    @patch("webhook_tg.views.send_message_reliably")
+    @patch("webhook_tg.views.collect_daily_user_metrics")
+    def test_other_user_gets_no_statistics(self, collect_mock, send_mock):
+        handled = _handle_stat_command(123456, 123456, "/stat", update_id=124)
+
+        self.assertTrue(handled)
+        collect_mock.assert_not_called()
+        send_mock.assert_not_called()
+
+    def test_other_command_is_not_consumed(self):
+        self.assertFalse(
+            _handle_stat_command(
+                OWNER_CHAT_ID,
+                int(OWNER_CHAT_ID),
+                "/status",
+                update_id=125,
+            )
+        )

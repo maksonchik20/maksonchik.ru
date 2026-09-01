@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 
+from webhook_tg.config import OWNER_CHAT_ID
 from webhook_tg.telegram import set_bot_commands
 
 
@@ -14,10 +15,20 @@ COMMANDS = [
     {"command": "unmute", "description": "Снять mute"},
 ]
 
+OWNER_COMMANDS = [
+    *COMMANDS,
+    {"command": "metric", "description": "Технические метрики"},
+    {"command": "stat", "description": "Пользовательская статистика"},
+]
+
 
 class Command(BaseCommand):
     help = "Обновляет меню команд @who_update_bot"
 
     def handle(self, *args, **options):
         set_bot_commands(COMMANDS)
+        set_bot_commands(
+            OWNER_COMMANDS,
+            scope={"type": "chat", "chat_id": int(OWNER_CHAT_ID)},
+        )
         self.stdout.write(self.style.SUCCESS("Команды WhoUpdate обновлены"))

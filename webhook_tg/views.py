@@ -45,6 +45,7 @@ from .metrics import (
     observe_sqlite_lock,
 )
 from .resource_metrics import collect_resource_snapshot, resource_report_text
+from .user_metrics import collect_daily_user_metrics, daily_user_metrics_text
 from .config import (
     START_PHOTO_ID,
     START_TEXT,
@@ -296,6 +297,13 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
     elif is_message_to_bot(data) and _handle_events_command(chat_id, text):
         pass
     elif is_message_to_bot(data) and _handle_metric_command(chat_id, from_user_id, command):
+        pass
+    elif is_message_to_bot(data) and _handle_stat_command(
+        chat_id,
+        from_user_id,
+        command,
+        update_id=update_id,
+    ):
         pass
     elif is_message_to_bot(data) and _handle_send_media_command(chat_id, text):
         pass
@@ -606,6 +614,28 @@ def _handle_metric_command(chat_id, from_user_id, command: str) -> bool:
 
     snapshot = collect_resource_snapshot()
     tg_send_message(chat_id, resource_report_text(snapshot))
+    return True
+
+
+def _handle_stat_command(
+    chat_id,
+    from_user_id,
+    command: str,
+    *,
+    update_id: int,
+) -> bool:
+    if command != "/stat":
+        return False
+    if str(from_user_id) != str(OWNER_CHAT_ID):
+        # Команда приватная: постороннему не подтверждаем даже её наличие.
+        return True
+
+    metrics = collect_daily_user_metrics()
+    send_message_reliably(
+        chat_id,
+        daily_user_metrics_text(metrics),
+        idempotency_key=f"command:{update_id}:stat",
+    )
     return True
 
 

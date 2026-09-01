@@ -357,8 +357,16 @@ def get_telegram_webhook_info(timeout: int = 10) -> dict:
     return result
 
 
-def set_bot_commands(commands: list[dict], timeout: int = 10) -> dict:
-    response = _telegram_post("setMyCommands", json={"commands": commands}, timeout=timeout)
+def set_bot_commands(
+    commands: list[dict],
+    timeout: int = 10,
+    *,
+    scope: dict | None = None,
+) -> dict:
+    payload = {"commands": commands}
+    if scope is not None:
+        payload["scope"] = scope
+    response = _telegram_post("setMyCommands", json=payload, timeout=timeout)
     result = response.json()
     if not result.get("ok"):
         raise RuntimeError(f"setMyCommands failed: {result}")
