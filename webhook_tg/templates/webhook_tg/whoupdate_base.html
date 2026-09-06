@@ -1,0 +1,85 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f7f9">
+  <title>{% block title %}WhoUpdate — важное остаётся с вами{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}Бот для просмотра удалённых и изменённых сообщений в Телеграм. WhoUpdate присылает копию при удалении и правке — без пароля и SMS. Подключите за минуту.{% endblock %}">
+  <link rel="canonical" href="{% block canonical %}{{ canonical_url|default:'https://who-update.ru/' }}{% endblock %}">
+  <meta property="og:title" content="{% block og_title %}Как посмотреть удалённые сообщения в Telegram (ТГ) — бот WhoUpdate{% endblock %}">
+  <meta property="og:description" content="{% block og_description %}Сообщение удалили. У вас осталось. Сохранённые сообщения, история правок и медиа прямо в Telegram.{% endblock %}">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:url" content="{% block og_url %}{{ canonical_url|default:'https://who-update.ru/' }}{% endblock %}">
+  <meta property="og:site_name" content="WhoUpdate">
+  <link rel="icon" href="{% static 'main/who-update/favicon.svg' %}" type="image/svg+xml">
+  <link rel="preload" href="{% static 'main/design/golos-400.ttf' %}" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="{% static 'main/design/golos-600.ttf' %}" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="{% static 'main/design/fonts.css' %}">
+  <link rel="stylesheet" href="{% static 'main/who-update/site.css' %}?v=2">
+  <script src="{% static 'main/who-update/site.js' %}?v=2" defer></script>
+{% block structured_data %}<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "WhoUpdate",
+  "url": "https://who-update.ru/",
+  "applicationCategory": "CommunicationApplication",
+  "operatingSystem": "Telegram",
+  "description": "Telegram-бот для уведомлений об удалённых и изменённых сообщениях и сохранения одноразовых медиа.",
+  "offers": [
+    {"@type": "Offer", "price": "99", "priceCurrency": "RUB", "name": "Доступ на 1 месяц"},
+    {"@type": "Offer", "price": "199", "priceCurrency": "RUB", "name": "Доступ на 3 месяца"},
+    {"@type": "Offer", "price": "599", "priceCurrency": "RUB", "name": "Доступ на 1 год"}
+  ]
+}
+</script>{% endblock %}
+</head>
+<body>
+{% include 'main/includes/yandex_metrika.html' %}
+<a class="skip-link" href="#main">Перейти к содержимому</a>
+<svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+  <symbol id="i-up-right" viewBox="0 0 24 24"><path d="M6 18 18 6M6 6h12v12"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  <symbol id="i-checks" viewBox="0 0 24 24"><path d="m2 12 4 4L16 6m-4 10L22 6"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="m16 3 5 5M4 16 17 3a2 2 0 0 1 4 4L8 20l-5 1Z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 16-5-5L5 21"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 3 7v5c0 5 9 10 9 10s9-5 9-10V7Zm-4 9 3 3 5-5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H5v20h14V7Zm0 0v6h5M8 13h8m-8 4h5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7A9 9 0 1 0 21 14M20 2v6h-6"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 8h16M4 16h16"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 4v3"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="m21 3-7 18-4-7-7-4Zm0 0L10 14"/></symbol>
+</svg>
+<header class="site-header">
+  <div class="container nav-shell">
+    <a class="brand" href="{{ landing_url|default:'/' }}" aria-label="WhoUpdate — главная"><span class="brand-mark" aria-hidden="true"><span></span><span></span></span>WhoUpdate<span class="brand-period">.</span></a>
+    <nav class="desktop-nav" aria-label="Основная навигация"><a href="{{ landing_url|default:'/' }}#features">Возможности</a><a href="{{ landing_url|default:'/' }}#how">Как подключить</a><a href="{{ landing_url|default:'/' }}#faq">Вопросы</a></nav>
+    <div class="nav-actions"><a class="button button-small button-dark" href="{{ telegram_bot_url|default:'https://t.me/who_update_bot' }}" target="_blank" rel="noopener">Открыть бота <svg class="icon"><use href="#i-up-right"/></svg></a><button class="menu-toggle" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="mobile-nav"><svg class="icon"><use href="#i-menu"/></svg></button></div>
+  </div>
+  <nav class="mobile-nav" id="mobile-nav" aria-label="Мобильная навигация" hidden><a href="{{ landing_url|default:'/' }}#features">Возможности</a><a href="{{ landing_url|default:'/' }}#how">Как подключить</a><a href="{{ landing_url|default:'/' }}#faq">Вопросы</a></nav>
+</header>
+<main id="main">{% block content %}{% endblock %}</main>
+<footer class="site-footer container"><div class="footer-top"><a class="brand" href="{{ landing_url|default:'/' }}"><span class="brand-mark" aria-hidden="true"><span></span><span></span></span>WhoUpdate<span class="brand-period">.</span></a><p>Память для ваших переписок.</p><a class="text-link" href="{{ telegram_bot_url|default:'https://t.me/who_update_bot' }}" target="_blank" rel="noopener">@who_update_bot <svg class="icon"><use href="#i-up-right"/></svg></a></div><div class="footer-bottom"><span>© {% now 'Y' %} WhoUpdate</span><div><a href="{{ privacy_url|default:'https://who-update.ru/privacy/' }}">Конфиденциальность</a><a href="{{ terms_url|default:'https://who-update.ru/terms/' }}">Условия использования</a></div><a href="https://maksonchik.ru/" target="_blank" rel="noopener">Сделано maksonchik.ru ↗</a></div></footer>
+<script>
+(function () {
+  document.addEventListener('click', function (event) {
+    var link = event.target.closest('a[href]');
+    if (!link || typeof ym !== 'function') return;
+    if ((link.getAttribute('href') || '').indexOf('https://t.me/who_update_bot') === 0) {
+      ym({{ site.metrika_id }}, 'reachGoal', 'telegram_who_update_bot');
+    }
+  });
+})();
+</script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

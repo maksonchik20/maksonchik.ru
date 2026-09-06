@@ -24,25 +24,22 @@ class SeoPagesTest(TestCase):
             '<link rel="canonical" href="https://who-update.ru/">',
             html=True,
         )
-        self.assertContains(response, "Посмотреть демонстрацию", count=3)
-        self.assertContains(response, 'href="#features">Демонстрация работы</a>')
-        self.assertNotContains(response, 'href="#how">Как это работает</a>')
-        self.assertContains(response, 'class="feature-icon"', count=7)
-        self.assertContains(response, "Уведомления в реальном времени")
-        self.assertContains(response, "WhoUpdate работает 24/7, даже когда вы офлайн")
-        self.assertNotContains(response, "Только ваши чаты")
-        self.assertContains(response, "История после удаления переписки")
-        self.assertContains(response, "/history @username")
-        self.assertContains(response, "TXT-файл со всей доступной историей")
+        # The redesigned page keeps the product and video flows accessible.
+        self.assertContains(response, 'role="tab"', count=3)
+        self.assertContains(response, 'role="tabpanel"')
+        self.assertContains(response, 'id="video-dialog"')
+        self.assertContains(response, 'aria-label="Закрыть демонстрацию"')
         self.assertContains(response, 'preload="none"')
-        self.assertContains(response, ".demo-dialog, .demo-dialog * { cursor: auto; }")
-        self.assertContains(response, "/who-update-demo-media/deleted-message.mp4")
-        self.assertContains(response, "/who-update-demo-media/edited-message.mp4")
-        self.assertContains(response, "/who-update-demo-media/hidden-media.mp4")
-        self.assertContains(
-            response,
-            "Telegram Premium не нужен · Подключение за минуту · Бесплатно",
-        )
+        for source in ("deleted-message", "edited-message", "hidden-media"):
+            self.assertContains(response, f"/who-update-demo-media/{source}.mp4")
+        self.assertContains(response, "/history @username")
+        self.assertContains(response, "TXT-файлом")
+        self.assertContains(response, "Без Telegram Premium")
+        self.assertContains(response, "С момента подключения")
+        self.assertContains(response, "/static/main/who-update/site.css")
+        self.assertContains(response, "/static/main/who-update/site.js")
+        self.assertContains(response, 'href="https://who-update.ru/privacy/"')
+        self.assertContains(response, 'href="https://who-update.ru/terms/"')
 
     def test_who_update_alias_redirects_permanently(self):
         response = self.client.get("/who-update-bot/")
@@ -74,7 +71,7 @@ class SeoPagesTest(TestCase):
             html=True,
         )
         self.assertContains(response, 'content="WhoUpdate"')
-        self.assertContains(response, "© WhoUpdate · who-update.ru")
+        self.assertContains(response, "Память для ваших переписок.")
         self.assertContains(response, "mc.yandex.ru/watch/112093587")
         self.assertNotContains(response, "mc.yandex.ru/watch/111680333")
         self.assertNotContains(response, 'id="lead-form"')
