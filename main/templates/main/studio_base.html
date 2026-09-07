@@ -1,0 +1,121 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block page_title %}{{ site.title }}{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}{{ site.description }}{% endblock %}">
+  <link rel="canonical" href="{% block canonical_url %}{{ site.url }}{% endblock %}">
+  <meta property="og:title" content="{% block og_title %}{{ site.title }}{% endblock %}">
+  <meta property="og:description" content="{% block og_description %}{{ site.description }}{% endblock %}">
+  <meta property="og:url" content="{% block og_url %}{{ site.url }}{% endblock %}">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:site_name" content="{% block og_site_name %}{{ site.name }}{% endblock %}">
+  <meta name="theme-color" content="#f4f5f1">
+  {% include "main/includes/yandex_metrika.html" %}
+  {% block favicons %}
+  <link rel="icon" href="/favicon.ico" sizes="48x48" type="image/x-icon">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/favicon-120.png" sizes="120x120">
+  {% endblock %}
+  <link rel="stylesheet" href="{% static 'main/design/fonts.css' %}">
+  {% block extra_head %}{% endblock %}
+  <link rel="stylesheet" href="{% static 'main/design/studio.css' %}">
+  <link rel="stylesheet" href="{% static 'main/design/motion.css' %}">
+</head>
+<body class="studio">
+  <a class="skip-link" href="#main-content">Перейти к содержанию</a>
+  <header class="site-header" id="site-header">
+    <nav class="nav wrap" aria-label="Главная навигация">
+      {% block nav_brand %}<a class="nav-brand" href="/" aria-label="Максим Горшунов — главная"><span class="brand-mark" aria-hidden="true">м.</span><span>Максим<br>Горшунов</span></a>{% endblock %}
+      <button class="menu-toggle" type="button" aria-controls="site-navigation" aria-expanded="false">Меню <span aria-hidden="true">＋</span></button>
+      <div class="nav-links" id="site-navigation">
+        {% block nav_links %}
+        <a href="/#services">Услуги</a><a href="/#projects">Работы</a><a href="/#pricing">Стоимость</a><a href="/#about">Обо мне</a><a href="/#faq">Вопросы</a><a href="/blog/">Блог</a>
+        {% endblock %}
+        {% block nav_cta %}<a class="nav-contact" href="{{ site.telegram }}" target="_blank" rel="noopener">Обсудить задачу <span aria-hidden="true">↗</span></a>{% endblock %}
+      </div>
+    </nav>
+  </header>
+  <main id="main-content">{% block content %}{% endblock %}</main>
+  {% block lead_section %}
+  <section class="lead-section wrap" id="request">
+    <div class="lead-shell">
+      <div class="lead-copy">
+        <div class="eyebrow"><span class="eyebrow-dot"></span>Начнём с вашей задачи</div>
+        <h2 id="lead-title">Получите план и оценку проекта</h2>
+        <p id="lead-description">Оставьте контакт — я лично уточню, что нужно вашему бизнесу. Предложу подходящее решение, бюджет и сроки. Готовое техническое задание не требуется.</p>
+        <p class="lead-alternative">Удобнее в мессенджере? <a href="{{ site.telegram }}" target="_blank" rel="noopener">Написать в Telegram</a></p>
+      </div>
+      <div class="lead-form-wrap">
+        <form class="lead-form" id="lead-form" action="{% url 'submit_lead' %}" method="post" data-metrika-id="{{ site.metrika_id }}" novalidate>
+          {% csrf_token %}
+          <div class="lead-field">
+            <label for="lead-contact">Куда отправить оценку проекта?</label>
+            <input id="lead-contact" name="contact" type="text" maxlength="255" autocomplete="email" placeholder="Телефон, email или @telegram" required>
+          </div>
+          <details class="lead-optional">
+            <summary>Рассказать о задаче — необязательно</summary>
+            <div class="lead-field">
+              <label for="lead-name">Как вас зовут (необязательно)</label>
+              <input id="lead-name" name="name" type="text" maxlength="120" autocomplete="name" placeholder="Имя">
+            </div>
+            <div class="lead-field">
+              <label for="lead-message">Что хотите упростить или запустить?</label>
+              <textarea id="lead-message" name="message" maxlength="3000" rows="3" placeholder="Например: студия красоты, заявки приходят в чат. Хочу онлайн-запись. Можно указать бюджет и желаемый срок."></textarea>
+            </div>
+          </details>
+          <div class="lead-honeypot" aria-hidden="true">
+            <label for="lead-company">Компания</label><input id="lead-company" name="company" type="text" tabindex="-1" autocomplete="off">
+          </div>
+          <label class="lead-consent">
+            <input name="consent" type="checkbox" required>
+            <span>Согласен на обработку данных в соответствии с <a href="{% url 'privacy' %}" target="_blank" rel="noopener">политикой конфиденциальности</a>.</span>
+          </label>
+          <input type="hidden" name="page_url">
+          <input type="hidden" name="page_title">
+          <input type="hidden" name="utm_source">
+          <input type="hidden" name="utm_medium">
+          <input type="hidden" name="utm_campaign">
+          <input type="hidden" name="utm_content">
+          <input type="hidden" name="utm_term">
+          <button class="btn btn-primary btn-arrow lead-submit" type="submit">Узнать стоимость и сроки</button>
+          <p class="lead-error" role="alert" aria-live="polite"></p>
+        </form>
+        <div class="lead-success" id="lead-success" role="status" aria-live="polite" aria-hidden="true" tabindex="-1">
+          <div>
+            <div class="success-orbit"><div class="success-check">✓</div></div>
+            <h3>Заявка принята</h3>
+            <p>Спасибо! Я свяжусь с вами по указанному контакту, уточню задачу и предложу следующий шаг.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  {% endblock %}
+
+  {% block after_lead %}{% endblock %}
+
+  {% block lead_dialog %}
+  <dialog class="lead-dialog" id="lead-dialog" aria-labelledby="lead-title" aria-describedby="lead-description">
+    <button class="lead-dialog-close" type="button" aria-label="Закрыть форму">×</button>
+  </dialog>
+  {% endblock %}
+
+  <footer class="site-footer">
+    <div class="wrap footer-row">
+      {% block footer_inner %}
+      <a href="/" class="footer-brand">maksonchik<span>.ru</span></a>
+      <div class="footer-meta"><span>© {% now "Y" %} Максим Горшунов</span><a href="/blog/">Блог</a><a href="{% url 'privacy' %}">Политика конфиденциальности</a></div>
+      <a class="back-top" href="#" aria-label="Вернуться наверх">↑</a>
+      {% endblock %}
+    </div>
+  </footer>
+  <script src="{% static 'main/design/studio.js' %}" defer></script>
+  <script src="{% static 'main/design/motion.js' %}" defer></script>
+  <script src="{% static 'main/lead-form.js' %}?v=20260826-1" defer></script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

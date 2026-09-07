@@ -7,7 +7,7 @@ from .landing_pages import SERVICE_LANDING_SLUGS
 
 HOST = "https://maksonchik.ru"
 WHO_UPDATE_HOST = "https://who-update.ru"
-SITE_LASTMOD = "2026-08-23"
+SITE_LASTMOD = "2026-09-07"
 WHO_UPDATE_LASTMOD = "2026-08-30"
 
 # Пути с 301 — в sitemap не включаем (см. main/urls.py).

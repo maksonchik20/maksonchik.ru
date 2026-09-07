@@ -1,4 +1,4 @@
-{% extends "main/base.html" %}
+{% extends "main/studio_base.html" %}
 
 {% block page_title %}{{ article.title }}{% endblock %}
 {% block meta_description %}{{ article.description }}{% endblock %}
@@ -196,7 +196,7 @@
     {% endfor %}
 
     <nav class="article-related holo-card" aria-label="Связанные услуги">
-      <h2>Также могу сделать</h2>
+      <h2>Решения для вашего бизнеса</h2>
       <ul>
         {% for link in article.related_services %}
         <li><a href="{{ link.url }}">{{ link.label }}</a></li>
@@ -205,10 +205,10 @@
     </nav>
 
     <aside class="article-cta holo-card">
-      <h2 class="gradient-text">Нужна помощь с проектом?</h2>
-      <p>Разрабатываю сайты и Telegram-боты под ключ — напишите в Telegram, обсудим задачу и смету.</p>
+      <h2 class="gradient-text">Как применить это в вашем бизнесе?</h2>
+      <p>Расскажите, как сейчас принимаете заявки и что хотите улучшить. Предложу, какие функции стоит сделать в первую очередь, и оценю разработку.</p>
       <div class="article-cta__links">
-        <a class="btn btn-primary btn-arrow" href="{{ site.telegram }}" target="_blank" rel="noopener">{{ site.telegram_handle }}</a>
+        <a class="btn btn-primary btn-arrow" href="#request" data-lead-open>Узнать стоимость и сроки</a>
         <a class="btn btn-ghost btn-arrow" href="{{ article.service_url }}">{{ article.service_label }}</a>
         {% for link in article.related_services|slice:":2" %}
         <a class="btn btn-ghost btn-arrow" href="{{ link.url }}">{{ link.label }}</a>

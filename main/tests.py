@@ -126,7 +126,7 @@ class LeadFormTest(TestCase):
     def test_home_offers_custom_automation(self):
         response = self.client.get("/")
 
-        self.assertContains(response, "Любая автоматизация")
+        self.assertContains(response, "Автоматизация вашей работы")
         self.assertContains(response, "интеграции с сервисами")
 
     def test_coffee_shop_landing_contains_preorder_offer_and_lead_form(self):
