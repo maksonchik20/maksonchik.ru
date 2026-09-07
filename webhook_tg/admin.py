@@ -2,7 +2,8 @@ import json
 from urllib.parse import quote, urlencode
 
 from django.contrib import admin
-from django.db.models import Q
+from django.contrib.admin.views.main import ChangeList
+from django.db.models import F, Q
 from django.http import (
     HttpResponse,
     HttpResponseBadRequest,
@@ -333,6 +334,20 @@ class AdminChatFilterAdmin(admin.ModelAdmin):
         return format_html('<a href="{}">Открыть чат</a>', url)
 
 
+class UserTgChangeList(ChangeList):
+    def get_ordering(self, request, queryset):
+        ordering = super().get_ordering(request, queryset)
+        # Apply after Django resolves column clicks, including reverse sorting.
+        return [
+            F("last_start_at").desc(nulls_last=True)
+            if field == "-last_start_at"
+            else F("last_start_at").asc(nulls_last=True)
+            if field == "last_start_at"
+            else field
+            for field in ordering
+        ]
+
+
 @admin.register(UserTg)
 class UserTgAdmin(admin.ModelAdmin):
     list_display = (
@@ -345,7 +360,6 @@ class UserTgAdmin(admin.ModelAdmin):
         "business_disconnected_at",
         "connection_reminder_at",
         "connection_reminder_sent_at",
-        "access_unlimited",
         "access_expires_at",
         "referral_bonus_days",
         "referred_by",
@@ -354,6 +368,9 @@ class UserTgAdmin(admin.ModelAdmin):
     search_fields = ("username", "first_name", "user_id", "chat_id", "business_connection_id", "referral_code")
     ordering = ("-last_start_at",)
     readonly_fields = ("dialog_link",)
+
+    def get_changelist(self, request, **kwargs):
+        return UserTgChangeList
 
     def get_urls(self):
         urls = super().get_urls()
