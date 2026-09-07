@@ -82,6 +82,7 @@ from .subscriptions import (
     subscription_keyboard,
 )
 from .bot_outgoing_log import log_bot_incoming
+from .video_note_age import schedule_video_note_age_check
 from .onboarding_analytics import (
     record_connection,
     record_demo_opened,
@@ -200,6 +201,9 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
         and maybe_delete_muted_business_message(msg)
     ):
         return
+
+    if data.get("business_message"):
+        schedule_video_note_age_check(msg)
 
     text = msg.get("text")
     if text is None and not is_deleted_message(data):

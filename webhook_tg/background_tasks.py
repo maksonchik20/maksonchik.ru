@@ -18,6 +18,7 @@ from .metrics import PAYMENT_EVENTS, observe_metric
 from .models import BackgroundTask, UserTg, WhoUpdatePaymentOrder
 from .telegram import dispatch_telegram_request
 from .yookassa import get_payment
+from .video_note_age import VIDEO_NOTE_AGE_TASK, check_video_note_age
 
 logger = logging.getLogger(__name__)
 
@@ -271,6 +272,7 @@ def _reconcile_payment(task: BackgroundTask) -> None:
 TASK_HANDLERS = {
     CONNECTION_REMINDER_TASK: _send_connection_reminder,
     PAYMENT_RECONCILIATION_TASK: _reconcile_payment,
+    VIDEO_NOTE_AGE_TASK: check_video_note_age,
 }
 
 
