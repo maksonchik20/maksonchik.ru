@@ -635,6 +635,7 @@ class TelegramOutbox(models.Model):
         SEND_PHOTO = "sendPhoto", "sendPhoto"
         SEND_AUDIO = "sendAudio", "sendAudio"
         SEND_VIDEO = "sendVideo", "sendVideo"
+        SEND_VIDEO_NOTE_WITH_TEXT = "sendVideoNoteWithText", "Кружок, затем текст"
         SEND_DOCUMENT = "sendDocument", "sendDocument"
         SEND_DOCUMENT_BYTES = "sendDocumentBytes", "sendDocumentBytes"
 

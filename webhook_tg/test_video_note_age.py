@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from .background_tasks import claim_next_task, process_claimed_task
 from .models import BackgroundTask, TelegramOutbox, UserTg
+from .outbox import deliver_outbox_item
 from .video_note_age import (
     MAX_VIDEO_BYTES,
     MP4_EPOCH,
@@ -157,12 +158,60 @@ class VideoNoteAgePilotTests(TestCase):
         self.assertEqual(task.status, BackgroundTask.Status.COMPLETED)
         item = TelegramOutbox.objects.get()
         self.assertEqual(item.chat_id, PILOT_USER_ID)
-        self.assertEqual(item.method, TelegramOutbox.Method.SEND_MESSAGE)
+        self.assertEqual(item.method, TelegramOutbox.Method.SEND_VIDEO_NOTE_WITH_TEXT)
+        self.assertEqual(item.payload["video_note"], "test-file")
         text = item.payload["text"]
         self.assertIn("&lt;Александр &amp; друг&gt; (@alex)", text)
         self.assertIn("45 мин.", text)
         self.assertIn("МСК", text)
         self.assertIn("не доказательство пересылки", text)
+        self.assertIn('<a href="https://t.me/who_update_bot">@who_update_bot</a>', text)
+
+    @patch("webhook_tg.outbox.dispatch_telegram_request")
+    @patch("webhook_tg.video_note_age._download_video")
+    def test_video_is_sent_before_text_and_successful_video_is_not_retried(self, download, dispatch):
+        download.return_value = video_file(self.now - timedelta(minutes=45))
+        check_video_note_age(schedule_video_note_age_check(self.msg))
+        item = TelegramOutbox.objects.get()
+        # First attempt: failed video means no text is sent.
+        dispatch.return_value = (False, "Temporary Telegram timeout")
+        self.assertEqual(deliver_outbox_item(item.pk), "failed")
+        self.assertEqual([c.args[0] for c in dispatch.call_args_list], ["sendVideoNote"])
+        item.refresh_from_db()
+        self.assertFalse(item.payload.get("_video_note_sent"))
+
+        # Second attempt: video succeeds, text needs a retry.
+        dispatch.reset_mock()
+        dispatch.side_effect = [(True, ""), (False, "Temporary Telegram timeout")]
+        TelegramOutbox.objects.filter(pk=item.pk).update(next_attempt_at=timezone.now())
+        self.assertEqual(deliver_outbox_item(item.pk), "failed")
+        self.assertEqual([c.args[0] for c in dispatch.call_args_list], ["sendVideoNote", "sendMessage"])
+        self.assertTrue(all(c.args[1] == PILOT_USER_ID for c in dispatch.call_args_list))
+        self.assertEqual(dispatch.call_args_list[0].args[2], {"video_note": "test-file"})
+        item.refresh_from_db()
+        self.assertTrue(item.payload["_video_note_sent"])
+
+        # Third attempt resumes at the text, including after a worker restart.
+        dispatch.reset_mock()
+        dispatch.side_effect = None
+        dispatch.return_value = (True, "")
+        TelegramOutbox.objects.filter(pk=item.pk).update(next_attempt_at=timezone.now())
+        self.assertEqual(deliver_outbox_item(item.pk), "sent")
+        self.assertEqual([c.args[0] for c in dispatch.call_args_list], ["sendMessage"])
+        self.assertNotIn("video_note", dispatch.call_args.args[2])
+        self.assertNotIn("_video_note_sent", dispatch.call_args.args[2])
+        self.assertEqual(deliver_outbox_item(item.pk), "skipped")
+        dispatch.assert_called_once()
+
+    @patch("webhook_tg.outbox.dispatch_telegram_request", return_value=(False, "Forbidden: bot was blocked by the user"))
+    @patch("webhook_tg.video_note_age._download_video")
+    def test_blocked_video_drops_pair_without_sending_text(self, download, dispatch):
+        download.return_value = video_file(self.now - timedelta(minutes=45))
+        check_video_note_age(schedule_video_note_age_check(self.msg))
+        item = TelegramOutbox.objects.get()
+        self.assertEqual(deliver_outbox_item(item.pk), "dropped")
+        self.assertEqual(dispatch.call_args.args[0], "sendVideoNote")
+        dispatch.assert_called_once()
 
     @patch("webhook_tg.video_note_age._download_video")
     def test_threshold_uses_telegram_date_even_when_worker_is_delayed(self, download):

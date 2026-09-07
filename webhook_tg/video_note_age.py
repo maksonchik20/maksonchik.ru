@@ -185,7 +185,8 @@ def _warning_text(payload: dict, created_at: datetime, sent_at: datetime) -> str
         f"Отправлен: <b>{sent_at.astimezone(MOSCOW):%d.%m.%Y %H:%M:%S}</b> МСК\n"
         f"Разница: <b>{age}</b>\n\n"
         "Возможно, видео переслали или отправили спустя время после записи. "
-        "Дата в файле может быть неточной — это не доказательство пересылки."
+        "Дата в файле может быть неточной — это не доказательство пересылки.\n\n"
+        '<a href="https://t.me/who_update_bot">@who_update_bot</a>'
     )
 
 
@@ -212,8 +213,9 @@ def check_video_note_age(task: BackgroundTask) -> None:
         return
     item = enqueue_outbox(
         chat_id=PILOT_USER_ID,
-        method=TelegramOutbox.Method.SEND_MESSAGE,
+        method=TelegramOutbox.Method.SEND_VIDEO_NOTE_WITH_TEXT,
         payload={
+            "video_note": payload["file_id"],
             "text": _warning_text(payload, created_at, sent_at),
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
