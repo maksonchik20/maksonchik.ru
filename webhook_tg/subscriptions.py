@@ -18,6 +18,17 @@ REFERRAL_REWARD_DAYS = 7
 CHECKOUT_SIGNING_SALT = "who-update-checkout-v1"
 BOT_USERNAME = "who_update_bot"
 
+PURCHASE_PROMOTION_TEXT = (
+    "🍀 <b>А может повезёт?</b>\n"
+    "Считаем оплаченные покупки <b>всех пользователей вместе</b>. "
+    "Если ваша покупка окажется 5-й, 10-й, 15-й и так далее — "
+    "<b>удвоим срок по выбранному тарифу</b>:\n\n"
+    "• 1 месяц → <b>2 месяца</b>\n"
+    "• 3 месяца → <b>6 месяцев</b>\n"
+    "• 1 год → <b>2 года</b>\n\n"
+    "Бонус может выпасть уже при первой покупке!"
+)
+
 PLAN_CONFIG = {
     "month": {"label": "1 месяц", "days": 30, "amount": Decimal("99.00")},
     "three_months": {"label": "3 месяца", "days": 90, "amount": Decimal("199.00")},
@@ -161,7 +172,8 @@ def access_status_text(bot_user: UserTg, at=None) -> str:
         "⏳ <b>Доступ к WhoUpdate</b>\n\n"
         f"{access_line}\n"
         f"Бонус за приглашённых: <b>{bot_user.referral_bonus_days} дн.</b>\n\n"
-        "Продлить доступ можно оплатой или приглашением друга."
+        "Продлить доступ можно оплатой или приглашением друга.\n\n"
+        f"{PURCHASE_PROMOTION_TEXT}"
         f"{referral_section}"
     )
 
@@ -189,14 +201,7 @@ def expired_access_text(bot_user: UserTg) -> str:
         f"1 месяц — {_rubles(month['amount'])}, "
         f"3 месяца — {_rubles(three_months['amount'])}, "
         f"1 год — {_rubles(year['amount'])}.\n\n"
-        "🍀 <b>А может повезёт?</b>\n"
-        "Считаем оплаченные покупки <b>всех пользователей вместе</b>. "
-        "Если ваша покупка окажется 5-й, 10-й, 15-й и так далее — "
-        "<b>удвоим срок по выбранному тарифу</b>:\n\n"
-        "• 1 месяц → <b>2 месяца</b>\n"
-        "• 3 месяца → <b>6 месяцев</b>\n"
-        "• 1 год → <b>2 года</b>\n\n"
-        "Бонус может выпасть уже при первой покупке!\n\n"
+        f"{PURCHASE_PROMOTION_TEXT}\n\n"
         f"👥 <b>Пригласить друга и получить {REFERRAL_REWARD_DAYS} дней</b>\n"
         "Бонус будет начислен, когда приглашённый пользователь полностью подключит бота.\n\n"
         f"Ваша реферальная ссылка:\n<code>{html.escape(link)}</code>\n\n"
