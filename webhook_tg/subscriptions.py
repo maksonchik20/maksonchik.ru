@@ -195,7 +195,9 @@ def expired_access_text(bot_user: UserTg) -> str:
     three_months = plan_config_for_user(bot_user, "three_months")
     year = plan_config_for_user(bot_user, "year")
     return (
-        "⛔️ <b>Доступ к WhoUpdate закончился</b>\n\n"
+        "🚨 <b>Новые сообщения больше не сохраняются!</b>\n\n"
+        "Доступ к WhoUpdate закончился. Если собеседник удалит новое сообщение сейчас, "
+        "<b>бот не сможет его восстановить.</b>\n\n"
         "Продлить доступ можно одним из двух способов:\n\n"
         "💳 <b>Оплатить подписку</b>\n"
         f"1 месяц — {_rubles(month['amount'])}, "
