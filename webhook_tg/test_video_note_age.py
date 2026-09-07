@@ -14,7 +14,6 @@ from .outbox import deliver_outbox_item
 from .video_note_age import (
     MAX_VIDEO_BYTES,
     MP4_EPOCH,
-    PILOT_USER_ID,
     _download_video,
     check_video_note_age,
     mp4_creation_time,
@@ -22,6 +21,8 @@ from .video_note_age import (
     schedule_video_note_age_check,
 )
 from .views import process_telegram_update
+
+TEST_USER_ID = 901
 
 
 def box(kind, data, *, extended=False):
@@ -124,16 +125,16 @@ class VideoMetadataTests(SimpleTestCase):
         response.close.assert_called_once()
 
 
-class VideoNoteAgePilotTests(TestCase):
+class VideoNoteAgeTests(TestCase):
     def setUp(self):
         self.now = timezone.now().replace(microsecond=0)
         self.owner = UserTg.objects.create(
-            user_id=PILOT_USER_ID, chat_id=PILOT_USER_ID,
-            business_connection_id="pilot-connection", business_is_connected=True,
+            user_id=TEST_USER_ID, chat_id=TEST_USER_ID,
+            business_connection_id="customer-connection", business_is_connected=True,
             access_unlimited=False, access_expires_at=self.now + timedelta(days=1),
         )
         self.msg = {
-            "business_connection_id": "pilot-connection",
+            "business_connection_id": "customer-connection",
             "chat": {"id": 902, "type": "private"},
             "from": {"id": 902, "first_name": "<Александр & друг>", "username": "alex"},
             "message_id": 77,
@@ -141,17 +142,17 @@ class VideoNoteAgePilotTests(TestCase):
             "video_note": {"file_id": "test-file", "file_unique_id": "test-unique", "file_size": 1000},
         }
 
-    def test_only_owner_incoming_unmarked_video_notes_are_scheduled(self):
+    def test_only_active_connection_incoming_unmarked_media_are_scheduled(self):
         UserTg.objects.create(
             user_id=903, chat_id=903, business_connection_id="other-connection",
-            business_is_connected=True,
+            business_is_connected=True, access_unlimited=False,
         )
         variants = []
         for changes in (
             {"business_connection_id": "other-connection"},
             {"business_connection_id": "unknown"},
             {"business_connection_id": None},
-            {"from": {"id": PILOT_USER_ID}},
+            {"from": {"id": TEST_USER_ID}},
             {"from": {}},
             {"chat": {"id": -1001, "type": "supergroup"}},
             {"forward_origin": {"type": "hidden_user"}},
@@ -167,6 +168,63 @@ class VideoNoteAgePilotTests(TestCase):
         first = schedule_video_note_age_check(self.msg)
         self.assertEqual(schedule_video_note_age_check(self.msg).pk, first.pk)
         self.assertEqual(BackgroundTask.objects.count(), 1)
+
+    @patch("webhook_tg.outbox.dispatch_telegram_request", return_value=(True, ""))
+    @patch("webhook_tg.video_note_age._download_video")
+    def test_multiple_customers_receive_only_their_own_media(self, download, dispatch):
+        download.return_value = video_file(self.now - timedelta(minutes=45))
+        other = UserTg.objects.create(
+            user_id=903, chat_id=903, business_connection_id="other-connection",
+            business_is_connected=True, access_unlimited=True,
+        )
+        for customer, file_id in ((self.owner, "first-file"), (other, "second-file")):
+            msg = {**self.msg, "business_connection_id": customer.business_connection_id,
+                   "video_note": {"file_id": file_id}}
+            self.assertIsNone(schedule_video_note_age_check({**msg, "from": {"id": customer.user_id}}))
+            task = schedule_video_note_age_check(msg)
+            check_video_note_age(task)
+            item = TelegramOutbox.objects.get(idempotency_key=task.idempotency_key)
+            self.assertEqual(item.chat_id, customer.chat_id)
+            self.assertEqual(item.payload["video_note"], file_id)
+            dispatch.reset_mock()
+            self.assertEqual(deliver_outbox_item(item.pk), "sent")
+            self.assertEqual([c.args[0] for c in dispatch.call_args_list], ["sendVideoNote", "sendMessage"])
+            self.assertTrue(all(c.args[1] == customer.chat_id for c in dispatch.call_args_list))
+        self.assertEqual(BackgroundTask.objects.count(), 2)
+        self.assertEqual(TelegramOutbox.objects.count(), 2)
+
+    def test_former_pilot_user_can_be_an_incoming_sender_for_another_customer(self):
+        task = schedule_video_note_age_check({**self.msg, "from": {"id": 1394340082}})
+        self.assertIsNotNone(task)
+        self.assertEqual(task.payload["owner_user_id"], self.owner.user_id)
+
+    @patch("webhook_tg.video_note_age._download_video")
+    def test_legacy_pending_task_keeps_its_original_recipient(self, download):
+        download.return_value = video_file(self.now - timedelta(minutes=45))
+        task = schedule_video_note_age_check(self.msg)
+        task.payload.pop("owner_user_id")
+        task.payload.pop("media_kind")
+        task.payload.pop("send_kind")
+        check_video_note_age(task)
+        self.assertEqual(TelegramOutbox.objects.get().chat_id, self.owner.chat_id)
+
+    @patch("webhook_tg.video_note_age._download_video")
+    def test_reassigned_connection_cannot_redirect_a_pending_warning(self, download):
+        task = schedule_video_note_age_check(self.msg)
+        UserTg.objects.filter(pk=self.owner.pk).update(business_connection_id="new-connection")
+        UserTg.objects.create(user_id=903, chat_id=903, business_is_connected=True,
+                              business_connection_id="customer-connection", access_unlimited=True)
+        for legacy in (False, True):
+            if legacy:
+                task.payload.pop("owner_user_id")
+            check_video_note_age(task)
+        download.assert_not_called()
+        self.assertFalse(TelegramOutbox.objects.exists())
+
+    def test_ambiguous_connection_is_not_scheduled(self):
+        UserTg.objects.create(user_id=903, chat_id=903, business_is_connected=True,
+                              business_connection_id="customer-connection", access_unlimited=True)
+        self.assertIsNone(schedule_video_note_age_check(self.msg))
 
     @patch("webhook_tg.views.create_message")
     @patch("webhook_tg.views.log_bot_incoming")
@@ -190,7 +248,7 @@ class VideoNoteAgePilotTests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.status, BackgroundTask.Status.COMPLETED)
         item = TelegramOutbox.objects.get()
-        self.assertEqual(item.chat_id, PILOT_USER_ID)
+        self.assertEqual(item.chat_id, TEST_USER_ID)
         self.assertEqual(item.method, TelegramOutbox.Method.SEND_VIDEO_NOTE_WITH_TEXT)
         self.assertEqual(item.payload["video_note"], "test-file")
         text = item.payload["text"]
@@ -219,7 +277,7 @@ class VideoNoteAgePilotTests(TestCase):
         TelegramOutbox.objects.filter(pk=item.pk).update(next_attempt_at=timezone.now())
         self.assertEqual(deliver_outbox_item(item.pk), "failed")
         self.assertEqual([c.args[0] for c in dispatch.call_args_list], ["sendVideoNote", "sendMessage"])
-        self.assertTrue(all(c.args[1] == PILOT_USER_ID for c in dispatch.call_args_list))
+        self.assertTrue(all(c.args[1] == TEST_USER_ID for c in dispatch.call_args_list))
         self.assertEqual(dispatch.call_args_list[0].args[2], {"video_note": "test-file"})
         item.refresh_from_db()
         self.assertTrue(item.payload["_video_note_sent"])
@@ -275,7 +333,7 @@ class VideoNoteAgePilotTests(TestCase):
                 self.assertEqual(deliver_outbox_item(item.pk), "sent")
                 self.assertEqual([c.args[0] for c in dispatch.call_args_list], [send_method, "sendMessage"])
                 self.assertEqual(dispatch.call_args_list[0].args[2], {kind: "original"})
-                self.assertTrue(all(c.args[1] == PILOT_USER_ID for c in dispatch.call_args_list))
+                self.assertTrue(all(c.args[1] == TEST_USER_ID for c in dispatch.call_args_list))
 
     @patch("webhook_tg.outbox.dispatch_telegram_request")
     @patch("webhook_tg.video_note_age._download_video")
@@ -296,7 +354,7 @@ class VideoNoteAgePilotTests(TestCase):
         self.assertEqual([c.args[0] for c in dispatch.call_args_list], ["sendMessage"])
 
     @patch("webhook_tg.video_note_age._download_video", return_value=photo_file())
-    def test_stripped_photo_is_silent_and_other_accounts_are_excluded(self, download):
+    def test_stripped_photo_is_silent_and_unknown_connections_are_excluded(self, download):
         msg = {**self.msg, "video_note": None, "photo": [{"file_id": "photo"}]}
         check_video_note_age(schedule_video_note_age_check(msg))
         self.assertFalse(TelegramOutbox.objects.exists())
@@ -334,6 +392,7 @@ class VideoNoteAgePilotTests(TestCase):
             {"access_expires_at": self.now - timedelta(seconds=1)},
             {"chat_id": 999},
             {"user_id": 999},
+            {"user_id": 999, "chat_id": 999},
         ):
             original = {key: getattr(self.owner, key) for key in changes}
             UserTg.objects.filter(pk=self.owner.pk).update(**changes)
@@ -351,6 +410,22 @@ class VideoNoteAgePilotTests(TestCase):
         task = schedule_video_note_age_check(self.msg)
         check_video_note_age(task)
         self.assertFalse(TelegramOutbox.objects.exists())
+
+    @patch("webhook_tg.video_note_age._download_video")
+    def test_access_or_identity_change_during_download_does_not_queue_warning(self, download):
+        task = schedule_video_note_age_check(self.msg)
+        for changes in (
+            {"access_expires_at": self.now - timedelta(seconds=1)},
+            {"user_id": 999, "chat_id": 999},
+        ):
+            original = {key: getattr(self.owner, key) for key in changes}
+            def change_owner(file_id):
+                UserTg.objects.filter(pk=self.owner.pk).update(**changes)
+                return video_file(self.now - timedelta(minutes=10))
+            download.side_effect = change_owner
+            check_video_note_age(task)
+            self.assertFalse(TelegramOutbox.objects.exists())
+            UserTg.objects.filter(pk=self.owner.pk).update(**original)
 
     @patch("webhook_tg.video_note_age._download_video", side_effect=RuntimeError("temporary download error"))
     def test_network_failure_uses_existing_retry_queue(self, download):

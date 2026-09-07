@@ -14,3 +14,6 @@
 
 /* Keep each assurance together while allowing the longer row to wrap. */
 .hero-assurance{flex-wrap:wrap;column-gap:0;row-gap:5px;max-width:none}.hero-assurance>.assurance-item{display:inline-flex;align-items:center;gap:6px;margin:0}.hero-assurance>.assurance-item+.assurance-item::before{content:"·";margin-inline:7px}
+
+.feature-forward{grid-column:1/-1;display:grid;grid-template-columns:1.15fr 1fr;gap:36px;align-items:center;background:#eef3ff;border-color:#d8e2f7}.forward-copy p{font-size:16px;line-height:1.75;color:#626d7c}.forward-example{padding:24px;border:1px solid #dce4f3;border-radius:16px;background:#fff}.forward-example-label{font-size:12px;letter-spacing:1px;color:#6b7789}.forward-example dl{margin:20px 0}.forward-example dl>div{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-top:12px}.forward-example dt{font-size:14px;color:#626d7c}.forward-example dd{margin:0;font-size:22px;font-variant-numeric:tabular-nums}.forward-example>strong{display:flex;align-items:center;gap:8px;color:var(--blue);font-size:16px;font-weight:500}.forward-example>p{font-size:14px;line-height:1.7;color:#626d7c;margin-top:14px}
+@media(max-width:720px){.feature-forward{grid-template-columns:1fr;gap:24px}.forward-example{padding:20px}.feature-forward .card-category{font-size:10px;letter-spacing:.6px}}

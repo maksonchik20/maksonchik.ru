@@ -1,4 +1,4 @@
-"""Owner-only pilot: flag media with an available date well before sending."""
+"""Flag incoming media with an available date well before sending."""
 
 from __future__ import annotations
 
@@ -12,16 +12,15 @@ import warnings
 from datetime import datetime, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
+from django.db.models import F
 from django.utils import timezone
 from PIL import Image
 
-from .config import OWNER_CHAT_ID
 from .models import BackgroundTask, TelegramOutbox, UserTg
 from .outbox import enqueue_outbox
 from .telegram import get_telegram_file_path, open_telegram_file_stream
 
 VIDEO_NOTE_AGE_TASK = "check_video_note_age"
-PILOT_USER_ID = int(OWNER_CHAT_ID)
 AGE_THRESHOLD = timedelta(minutes=3)
 MAX_VIDEO_BYTES = 20 * 1024 * 1024
 MOSCOW = ZoneInfo("Europe/Moscow")
@@ -52,16 +51,19 @@ def _message_media(msg: dict) -> tuple[dict, str, str] | None:
     return None
 
 
-def _pilot_owner(connection_id: str) -> UserTg | None:
+def _connection_owner(connection_id: str) -> UserTg | None:
     if not connection_id:
         return None
-    user = UserTg.objects.filter(
-        user_id=PILOT_USER_ID,
-        chat_id=PILOT_USER_ID,
-        business_connection_id=connection_id,
-        business_is_connected=True,
-    ).first()
-    return user if user and user.has_active_access() else None
+    try:
+        user = UserTg.objects.get(
+            business_connection_id=connection_id,
+            business_is_connected=True,
+            user_id__gt=0,
+            chat_id=F("user_id"),
+        )
+    except (UserTg.DoesNotExist, UserTg.MultipleObjectsReturned):
+        return None
+    return user if user.has_active_access() else None
 
 
 def schedule_video_note_age_check(msg: dict) -> BackgroundTask | None:
@@ -75,7 +77,7 @@ def schedule_video_note_age_check(msg: dict) -> BackgroundTask | None:
     if (
         not isinstance(note, dict)
         or not note.get("file_id")
-        or sender.get("id") in (None, PILOT_USER_ID)
+        or sender.get("id") is None
         or chat.get("type") != "private"
         or not chat.get("id")
         or not msg.get("message_id")
@@ -86,8 +88,8 @@ def schedule_video_note_age_check(msg: dict) -> BackgroundTask | None:
     ):
         return None
     connection_id = msg.get("business_connection_id")
-    owner = _pilot_owner(connection_id)
-    if owner is None:
+    owner = _connection_owner(connection_id)
+    if owner is None or sender["id"] == owner.user_id:
         return None
 
     from .background_tasks import enqueue_background_task
@@ -96,6 +98,7 @@ def schedule_video_note_age_check(msg: dict) -> BackgroundTask | None:
     task, _ = enqueue_background_task(
         task_type=VIDEO_NOTE_AGE_TASK,
         payload={
+            "owner_user_id": owner.user_id,
             "connection_id": connection_id,
             "chat_id": chat["id"],
             "message_id": msg["message_id"],
@@ -268,9 +271,13 @@ def _warning_text(payload: dict, created_at: datetime, sent_at: datetime) -> str
 
 def check_video_note_age(task: BackgroundTask) -> None:
     payload = task.payload
-    if payload.get("sender_id") in (None, PILOT_USER_ID):
-        return
-    if _pilot_owner(payload.get("connection_id")) is None:
+    owner = _connection_owner(payload.get("connection_id"))
+    if (
+        owner is None
+        or payload.get("sender_id") in (None, owner.user_id)
+        or payload.get("owner_user_id", owner.user_id) != owner.user_id
+        or not task.idempotency_key.startswith(f"video-note-age:{owner.pk}:")
+    ):
         return
     if TelegramOutbox.objects.filter(idempotency_key=task.idempotency_key).exists():
         return
@@ -285,8 +292,9 @@ def check_video_note_age(task: BackgroundTask) -> None:
         or sent_at - created_at <= AGE_THRESHOLD
     ):
         return
-    # Recheck after network I/O: the owner may have disconnected the bot.
-    if _pilot_owner(payload.get("connection_id")) is None:
+    # Recheck the recipient and access after network I/O, including legacy tasks.
+    current_owner = _connection_owner(payload.get("connection_id"))
+    if current_owner is None or (current_owner.pk, current_owner.user_id) != (owner.pk, owner.user_id):
         return
     send_kind = payload.get("send_kind", "video_note")
     media_payload = (
@@ -295,7 +303,7 @@ def check_video_note_age(task: BackgroundTask) -> None:
         else {"media_kind": send_kind, "file_id": payload["file_id"]}
     )
     item = enqueue_outbox(
-        chat_id=PILOT_USER_ID,
+        chat_id=current_owner.chat_id,
         method=(
             TelegramOutbox.Method.SEND_VIDEO_NOTE_WITH_TEXT
             if send_kind == "video_note"
