@@ -1,15 +1,19 @@
-"""Owner-only pilot: detect video notes created well before they were sent."""
+"""Owner-only pilot: flag media with an available date well before sending."""
 
 from __future__ import annotations
 
 import hashlib
 import html
+import io
+import re
 import struct
 import time
+import warnings
 from datetime import datetime, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
+from PIL import Image
 
 from .config import OWNER_CHAT_ID
 from .models import BackgroundTask, TelegramOutbox, UserTg
@@ -22,6 +26,30 @@ AGE_THRESHOLD = timedelta(minutes=3)
 MAX_VIDEO_BYTES = 20 * 1024 * 1024
 MOSCOW = ZoneInfo("Europe/Moscow")
 MP4_EPOCH = datetime(1904, 1, 1, tzinfo=dt_timezone.utc)
+
+
+def _message_media(msg: dict) -> tuple[dict, str, str] | None:
+    """Return media, its type for analysis, and its Telegram sending type."""
+    for kind in ("video_note", "video", "animation"):
+        if isinstance(msg.get(kind), dict):
+            return msg[kind], kind, kind
+    if msg.get("photo"):
+        photos = [p for p in msg["photo"] if isinstance(p, dict)]
+        if photos:
+            return max(photos, key=lambda p: p.get("width", 0) * p.get("height", 0)), "photo", "photo"
+    for field in ("document", "audio"):
+        media = msg.get(field)
+        if not isinstance(media, dict):
+            continue
+        mime = str(media.get("mime_type") or "").lower()
+        extension = str(media.get("file_name") or "").lower().rsplit(".", 1)[-1]
+        if mime.startswith("image/") or extension in ("jpg", "jpeg", "png", "webp", "tif", "tiff", "heic", "heif"):
+            return media, "photo", field
+        if mime.startswith("video/") or extension in ("mp4", "mov", "m4v"):
+            return media, "video", field
+        if mime in ("audio/mp4", "audio/x-m4a") or extension == "m4a":
+            return media, "audio", field
+    return None
 
 
 def _pilot_owner(connection_id: str) -> UserTg | None:
@@ -37,7 +65,11 @@ def _pilot_owner(connection_id: str) -> UserTg | None:
 
 
 def schedule_video_note_age_check(msg: dict) -> BackgroundTask | None:
-    note = msg.get("video_note")
+    # Keep the existing task name/key so pending video-note jobs remain valid.
+    selected = _message_media(msg)
+    if selected is None:
+        return None
+    note, media_kind, send_kind = selected
     sender = msg.get("from") or {}
     chat = msg.get("chat") or {}
     if (
@@ -69,6 +101,8 @@ def schedule_video_note_age_check(msg: dict) -> BackgroundTask | None:
             "message_id": msg["message_id"],
             "sent_at": msg["date"],
             "file_id": note["file_id"],
+            "media_kind": media_kind,
+            "send_kind": send_kind,
             "sender_id": sender["id"],
             "sender_name": str(sender.get("first_name") or "Собеседник")[:128],
             "sender_username": str(sender.get("username") or "")[:64],
@@ -141,6 +175,40 @@ def mp4_creation_time(data: bytes) -> datetime | None:
     return values[0]
 
 
+def photo_creation_time(data: bytes) -> datetime | None:
+    """Read original/digitized EXIF time only with an explicit UTC offset."""
+    if not data or len(data) > MAX_VIDEO_BYTES:
+        return None
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(data)) as image:
+                exif = image.getexif()
+                tags = dict(exif)
+                if 34665 in exif:
+                    tags.update(exif.get_ifd(34665))
+        for date_tag, offset_tag in ((36867, 36881), (36868, 36882)):
+            date = tags.get(date_tag)
+            offset = tags.get(offset_tag)
+            if not isinstance(date, str) or not isinstance(offset, str):
+                continue
+            date, offset = date.strip(" \x00"), offset.strip(" \x00")
+            if not re.fullmatch(r"[+-]\d{2}:\d{2}", offset):
+                continue
+            hours, minutes = int(offset[1:3]), int(offset[4:6])
+            if minutes >= 60 or hours * 60 + minutes > 14 * 60:
+                continue
+            delta = timedelta(hours=hours, minutes=minutes)
+            if offset[0] == "-":
+                delta = -delta
+            local = datetime.strptime(date, "%Y:%m:%d %H:%M:%S")
+            return local.replace(tzinfo=dt_timezone(delta)).astimezone(dt_timezone.utc)
+    except Exception:
+        # Unsupported formats and malformed metadata cannot establish an age.
+        return None
+    return None
+
+
 def _download_video(file_id: str) -> bytes | None:
     """Bound download size and keep private media in memory only."""
     try:
@@ -164,6 +232,14 @@ def _download_video(file_id: str) -> bytes | None:
 
 
 def _warning_text(payload: dict, created_at: datetime, sent_at: datetime) -> str:
+    media_kind = payload.get("media_kind", "video_note")
+    title, subject = {
+        "video_note": ("Возможно, этот кружок записан заранее", "видео"),
+        "video": ("Возможно, это видео записано заранее", "видео"),
+        "photo": ("Возможно, это фото сделано заранее", "фото"),
+        "animation": ("Возможно, эта анимация создана заранее", "анимацию"),
+        "audio": ("Возможно, это аудио записано заранее", "аудио"),
+    }[media_kind]
     sender = html.escape(payload["sender_name"])
     if payload.get("sender_username"):
         sender += f" (@{html.escape(payload['sender_username'].lstrip('@'))})"
@@ -179,12 +255,12 @@ def _warning_text(payload: dict, created_at: datetime, sent_at: datetime) -> str
         if value
     )
     return (
-        "⚠️ <b>Возможно, этот кружок записан заранее</b>\n\n"
+        f"⚠️ <b>{title}</b>\n\n"
         f"Отправитель: {sender}\n"
         f"Создан по данным файла: <b>{created_at.astimezone(MOSCOW):%d.%m.%Y %H:%M:%S}</b> МСК\n"
         f"Отправлен: <b>{sent_at.astimezone(MOSCOW):%d.%m.%Y %H:%M:%S}</b> МСК\n"
         f"Разница: <b>{age}</b>\n\n"
-        "Возможно, видео переслали или отправили спустя время после записи. "
+        f"Возможно, {subject} переслали или отправили спустя время после создания. "
         "Дата в файле может быть неточной — это не доказательство пересылки.\n\n"
         '<a href="https://t.me/who_update_bot">@who_update_bot</a>'
     )
@@ -199,7 +275,8 @@ def check_video_note_age(task: BackgroundTask) -> None:
     if TelegramOutbox.objects.filter(idempotency_key=task.idempotency_key).exists():
         return
     data = _download_video(payload["file_id"])
-    created_at = mp4_creation_time(data) if data else None
+    parser = photo_creation_time if payload.get("media_kind") == "photo" else mp4_creation_time
+    created_at = parser(data) if data else None
     sent_at = datetime.fromtimestamp(payload["sent_at"], dt_timezone.utc)
     if (
         created_at is None
@@ -211,11 +288,21 @@ def check_video_note_age(task: BackgroundTask) -> None:
     # Recheck after network I/O: the owner may have disconnected the bot.
     if _pilot_owner(payload.get("connection_id")) is None:
         return
+    send_kind = payload.get("send_kind", "video_note")
+    media_payload = (
+        {"video_note": payload["file_id"]}
+        if send_kind == "video_note"
+        else {"media_kind": send_kind, "file_id": payload["file_id"]}
+    )
     item = enqueue_outbox(
         chat_id=PILOT_USER_ID,
-        method=TelegramOutbox.Method.SEND_VIDEO_NOTE_WITH_TEXT,
+        method=(
+            TelegramOutbox.Method.SEND_VIDEO_NOTE_WITH_TEXT
+            if send_kind == "video_note"
+            else TelegramOutbox.Method.SEND_MEDIA_WITH_TEXT
+        ),
         payload={
-            "video_note": payload["file_id"],
+            **media_payload,
             "text": _warning_text(payload, created_at, sent_at),
             "parse_mode": "HTML",
             "disable_web_page_preview": True,

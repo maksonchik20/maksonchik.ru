@@ -1,10 +1,12 @@
 import copy
+import io
 import struct
 from datetime import datetime, timedelta, timezone as dt_timezone
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
+from PIL import Image
 
 from .background_tasks import claim_next_task, process_claimed_task
 from .models import BackgroundTask, TelegramOutbox, UserTg
@@ -16,6 +18,7 @@ from .video_note_age import (
     _download_video,
     check_video_note_age,
     mp4_creation_time,
+    photo_creation_time,
     schedule_video_note_age_check,
 )
 from .views import process_telegram_update
@@ -38,7 +41,37 @@ def video_file(created_at, *, version=0, extended=False):
     ) + box(b"mdat", b"unused media bytes")
 
 
+def photo_file(date=None, offset=None, *, digitized=False):
+    exif = Image.Exif()
+    tags = {}
+    if date is not None:
+        tags[36868 if digitized else 36867] = date
+    if offset is not None:
+        tags[36882 if digitized else 36881] = offset
+    if tags:
+        exif[34665] = tags
+    output = io.BytesIO()
+    Image.new("RGB", (1, 1)).save(output, format="JPEG", exif=exif)
+    return output.getvalue()
+
+
 class VideoMetadataTests(SimpleTestCase):
+    def test_photo_date_respects_explicit_timezone(self):
+        expected = datetime(2026, 9, 7, 12, 0, tzinfo=dt_timezone.utc)
+        for date, offset in (("2026:09:07 15:00:00", "+03:00"), ("2026:09:07 06:30:00", "-05:30")):
+            for digitized in (False, True):
+                self.assertEqual(photo_creation_time(photo_file(date, offset, digitized=digitized)), expected)
+
+    def test_photo_without_metadata_or_timezone_is_not_guessed(self):
+        for data in (
+            b"not an image", photo_file(), photo_file("2026:09:07 15:00:00"),
+            photo_file("2026:99:99 15:00:00", "+03:00"),
+            photo_file("2026:09:07 15:00:00", "+99:00"),
+            photo_file("2026:09:07 15:00:00", "+03:90"),
+            photo_file("2026:09:07 15:00:00", "Moscow"),
+        ):
+            self.assertIsNone(photo_creation_time(data))
+
     def test_reads_32_and_64_bit_dates_and_large_box_headers(self):
         date = datetime(2026, 9, 7, 12, 30, tzinfo=dt_timezone.utc)
         for version in (0, 1):
@@ -124,7 +157,7 @@ class VideoNoteAgePilotTests(TestCase):
             {"forward_origin": {"type": "hidden_user"}},
             {"forward_date": self.msg["date"] - 500},
             {"video_note": {"file_id": "large", "file_size": MAX_VIDEO_BYTES + 1}},
-            {"video_note": None, "video": {"file_id": "ordinary-video"}},
+            {"video_note": None, "document": {"file_id": "pdf-file", "mime_type": "application/pdf"}},
         ):
             variants.append({**self.msg, **changes})
         for msg in variants:
@@ -212,6 +245,64 @@ class VideoNoteAgePilotTests(TestCase):
         self.assertEqual(deliver_outbox_item(item.pk), "dropped")
         self.assertEqual(dispatch.call_args.args[0], "sendVideoNote")
         dispatch.assert_called_once()
+
+    @patch("webhook_tg.outbox.dispatch_telegram_request", return_value=(True, ""))
+    @patch("webhook_tg.video_note_age._download_video")
+    def test_media_types_copy_original_file_before_warning(self, download, dispatch):
+        created = self.now - timedelta(minutes=45)
+        photo = photo_file(created.strftime("%Y:%m:%d %H:%M:%S"), "+00:00")
+        video = video_file(created)
+        cases = (
+            ("photo", [{"file_id": "small", "width": 90, "height": 90}, {"file_id": "original", "width": 1000, "height": 1000}], photo, "sendPhoto", "фото"),
+            ("video", {"file_id": "original", "mime_type": "video/mp4"}, video, "sendVideo", "видео"),
+            ("animation", {"file_id": "original"}, video, "sendAnimation", "анимация"),
+            ("audio", {"file_id": "original", "mime_type": "audio/mp4"}, video, "sendAudio", "аудио"),
+            ("document", {"file_id": "original", "mime_type": "image/jpeg"}, photo, "sendDocument", "фото"),
+            ("document", {"file_id": "original", "file_name": "MOVIE.MOV"}, video, "sendDocument", "видео"),
+        )
+        for index, (kind, media, data, send_method, label) in enumerate(cases):
+            with self.subTest(kind=kind, method=send_method, label=label):
+                msg = {**self.msg, "video_note": None, "message_id": 200 + index, kind: media}
+                task = schedule_video_note_age_check(msg)
+                self.assertIsNotNone(task)
+                download.return_value = data
+                check_video_note_age(task)
+                item = TelegramOutbox.objects.get(idempotency_key=task.idempotency_key)
+                self.assertEqual(item.method, TelegramOutbox.Method.SEND_MEDIA_WITH_TEXT)
+                self.assertEqual(item.payload["file_id"], "original")
+                self.assertIn(label, item.payload["text"])
+                dispatch.reset_mock()
+                self.assertEqual(deliver_outbox_item(item.pk), "sent")
+                self.assertEqual([c.args[0] for c in dispatch.call_args_list], [send_method, "sendMessage"])
+                self.assertEqual(dispatch.call_args_list[0].args[2], {kind: "original"})
+                self.assertTrue(all(c.args[1] == PILOT_USER_ID for c in dispatch.call_args_list))
+
+    @patch("webhook_tg.outbox.dispatch_telegram_request")
+    @patch("webhook_tg.video_note_age._download_video")
+    def test_photo_text_retry_does_not_duplicate_photo(self, download, dispatch):
+        created = self.now - timedelta(minutes=45)
+        download.return_value = photo_file(created.strftime("%Y:%m:%d %H:%M:%S"), "+00:00")
+        msg = {**self.msg, "video_note": None, "photo": [{"file_id": "photo"}]}
+        task = schedule_video_note_age_check(msg)
+        check_video_note_age(task)
+        item = TelegramOutbox.objects.get()
+        dispatch.side_effect = [(True, ""), (False, "Temporary timeout")]
+        self.assertEqual(deliver_outbox_item(item.pk), "failed")
+        dispatch.reset_mock()
+        dispatch.side_effect = None
+        dispatch.return_value = (True, "")
+        TelegramOutbox.objects.filter(pk=item.pk).update(next_attempt_at=timezone.now())
+        self.assertEqual(deliver_outbox_item(item.pk), "sent")
+        self.assertEqual([c.args[0] for c in dispatch.call_args_list], ["sendMessage"])
+
+    @patch("webhook_tg.video_note_age._download_video", return_value=photo_file())
+    def test_stripped_photo_is_silent_and_other_accounts_are_excluded(self, download):
+        msg = {**self.msg, "video_note": None, "photo": [{"file_id": "photo"}]}
+        check_video_note_age(schedule_video_note_age_check(msg))
+        self.assertFalse(TelegramOutbox.objects.exists())
+        for field, media in (("photo", [{"file_id": "photo"}]), ("video", {"file_id": "video"})):
+            outsider = {**self.msg, "video_note": None, "business_connection_id": "other-connection", field: media}
+            self.assertIsNone(schedule_video_note_age_check(outsider))
 
     @patch("webhook_tg.video_note_age._download_video")
     def test_threshold_uses_telegram_date_even_when_worker_is_delayed(self, download):

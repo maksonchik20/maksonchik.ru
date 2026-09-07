@@ -103,7 +103,10 @@ def enqueue_outbox(
 
 
 def _dispatch_outbox_item(item: TelegramOutbox) -> tuple[bool, str]:
-    if item.method == TelegramOutbox.Method.SEND_VIDEO_NOTE_WITH_TEXT:
+    if item.method in (
+        TelegramOutbox.Method.SEND_VIDEO_NOTE_WITH_TEXT,
+        TelegramOutbox.Method.SEND_MEDIA_WITH_TEXT,
+    ):
         return _dispatch_video_note_with_text(item)
     if item.method != TelegramOutbox.Method.SEND_DOCUMENT_BYTES:
         return dispatch_telegram_request(item.method, item.chat_id, item.payload)
@@ -130,17 +133,25 @@ def _dispatch_outbox_item(item: TelegramOutbox) -> tuple[bool, str]:
 def _dispatch_video_note_with_text(item: TelegramOutbox) -> tuple[bool, str]:
     """Keep the two sends ordered and resume at the text after a retry."""
     payload = item.payload
-    if not payload.get("video_note") or not payload.get("text"):
-        return False, "invalid outbox payload: video note and text are required"
-    if not payload.get("_video_note_sent"):
+    legacy = item.method == TelegramOutbox.Method.SEND_VIDEO_NOTE_WITH_TEXT
+    kind = "video_note" if legacy else payload.get("media_kind")
+    file_id = payload.get("video_note") if legacy else payload.get("file_id")
+    progress_key = "_video_note_sent" if legacy else "_media_sent"
+    methods = {
+        "video_note": "sendVideoNote", "photo": "sendPhoto", "video": "sendVideo",
+        "animation": "sendAnimation", "document": "sendDocument", "audio": "sendAudio",
+    }
+    if kind not in methods or not file_id or not payload.get("text"):
+        return False, "invalid outbox payload: supported media and text are required"
+    if not payload.get(progress_key):
         ok, error = dispatch_telegram_request(
-            "sendVideoNote", item.chat_id, {"video_note": payload["video_note"]}
+            methods[kind], item.chat_id, {kind: file_id}
         )
         if not ok:
             return False, error
         # Persist progress before sending the text. A text failure must not
-        # resend a video that Telegram already accepted.
-        payload = {**payload, "_video_note_sent": True}
+        # resend media that Telegram already accepted.
+        payload = {**payload, progress_key: True}
         TelegramOutbox.objects.filter(pk=item.pk).update(payload=payload)
         item.payload = payload
     return dispatch_telegram_request(
