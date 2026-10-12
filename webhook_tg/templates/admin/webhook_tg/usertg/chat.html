@@ -1,0 +1,24 @@
+    <p>
+        {% if event_limited %}Показаны последние {{ events|length }} из {{ event_total }} событий.{% else %}Событий: {{ event_total }}.{% endif %}
+    </p>
+    <div class="wu-dialog-list" id="wu-dialog-list">
+        {% for event in events %}
+            <article class="wu-event wu-event-{{ event.direction }}">
+                <div class="wu-event-label">{{ event.get_direction_display }} · {{ event.get_event_type_display }}</div>
+                {% if event.text %}
+                    <div class="wu-event-text">{{ event.text }}</div>
+                {% else %}
+                    <div class="wu-event-text wu-event-empty">Без текста</div>
+                {% endif %}
+                {% include "admin/webhook_tg/includes/dialog_media.html" %}
+                <div class="wu-event-time">{{ event.created_at|date:"d.m.Y H:i:s" }}</div>
+                <details>
+                    <summary>Данные Telegram</summary>
+                    <pre>{{ event.payload_pretty }}</pre>
+                </details>
+            </article>
+        {% empty %}
+            <div class="wu-dialog-empty">Событий пока нет. Новые сообщения и нажатия появятся здесь автоматически.</div>
+        {% endfor %}
+    </div>
+{% include "admin/webhook_tg/includes/dialog_media_script.html" %}

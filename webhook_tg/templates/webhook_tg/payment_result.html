@@ -24,6 +24,7 @@
     <h1>Проверяем оплату</h1>
     <p>Если деньги уже списались, вернитесь в бот через несколько секунд — подтверждение придёт автоматически.</p>
   {% endif %}
+  {% if wheel_order_text %}<p>{{ wheel_order_text|safe }}</p>{% endif %}
   <a href="https://t.me/who_update_bot">Вернуться в WhoUpdate</a>
 </main>
 </body>

@@ -5,9 +5,12 @@ import time
 from datetime import timedelta
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
+from requests import RequestException
 
 from .idempotency import mark_webhook_update_processed
+from .incoming_notifications import notify_incoming_queue
 from .models import TelegramIncomingUpdate, WebhookUpdate
 from .metrics import (
     INCOMING_END_TO_END_DURATION,
@@ -23,6 +26,7 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 8
 MAX_BACKOFF_SECONDS = 60
 STALE_AFTER = timedelta(minutes=5)
+NETWORK_RETRY_SECONDS = 30
 
 
 def classify_update(data: dict) -> str:
@@ -59,21 +63,28 @@ def enqueue_incoming_update(data: dict, *, source: str = "unknown") -> tuple[Tel
                     1,
                     {"queue": item.queue, "source": source},
                 )
+                transaction.on_commit(
+                    lambda queue=item.queue, using=item._state.db: notify_incoming_queue(queue, using=using),
+                    using=item._state.db,
+                )
             return item, created
     except IntegrityError:
         return TelegramIncomingUpdate.objects.filter(update_id=update_id).first(), False
 
 
 def recover_stale_updates(queue: str) -> int:
-    stale_before = timezone.now() - STALE_AFTER
+    now = timezone.now()
+    stale_before = now - STALE_AFTER
     return TelegramIncomingUpdate.objects.filter(
         queue=queue,
         status=TelegramIncomingUpdate.Status.PROCESSING,
-        started_at__lt=stale_before,
+    ).filter(
+        Q(started_at__lt=stale_before)
+        | Q(started_at__isnull=True, created_at__lt=stale_before),
     ).update(
         status=TelegramIncomingUpdate.Status.PENDING,
         started_at=None,
-        next_attempt_at=timezone.now(),
+        next_attempt_at=now,
         last_error="Recovered after stale processing lease",
     )
 
@@ -125,9 +136,15 @@ def process_claimed_update(item: TelegramIncomingUpdate) -> bool:
         mark_webhook_update_processed(item.update_id)
     except Exception as exc:
         observe_sqlite_lock(exc, "incoming_worker")
-        attempts = item.attempts + 1
-        terminal = attempts >= MAX_ATTEMPTS
-        delay = min(2 ** max(attempts - 1, 0), MAX_BACKOFF_SECONDS)
+        # A transport outage says nothing about whether the update is valid.
+        # Keep it queued until Telegram is reachable instead of exhausting
+        # the handler-error budget while the circuit breaker is open.
+        network_error = isinstance(exc, RequestException)
+        attempts = item.attempts if network_error else item.attempts + 1
+        terminal = not network_error and attempts >= MAX_ATTEMPTS
+        delay = NETWORK_RETRY_SECONDS if network_error else min(
+            2 ** max(attempts - 1, 0), MAX_BACKOFF_SECONDS,
+        )
         TelegramIncomingUpdate.objects.filter(pk=item.pk).update(
             status=(
                 TelegramIncomingUpdate.Status.FAILED

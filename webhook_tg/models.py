@@ -1,8 +1,10 @@
 import secrets
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 
 from django.conf import settings
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.db.models.functions import Lower
 from django.utils import timezone
@@ -176,6 +178,9 @@ class UserTg(models.Model):
     class Meta:
         verbose_name = "Пользователь бота"
         verbose_name_plural = "Пользователи бота"
+        indexes = [
+            models.Index(fields=["business_connection_id"], name="wu_user_business_conn"),
+        ]
 
 
 class WhoUpdateOnboardingFunnel(models.Model):
@@ -217,6 +222,7 @@ class WhoUpdateOnboardingFunnel(models.Model):
         default="",
         db_index=True,
     )
+    metrika_counter_id = models.PositiveBigIntegerField(blank=True, null=True)
     landing_viewed_at = models.DateTimeField(blank=True, null=True, db_index=True)
     telegram_started_at = models.DateTimeField(blank=True, null=True, db_index=True)
     start_update_id = models.BigIntegerField(blank=True, null=True, unique=True)
@@ -293,6 +299,7 @@ class WhoUpdateMetrikaConversion(models.Model):
     occurred_at = models.DateTimeField(db_index=True)
     identifier_type = models.CharField(max_length=16, choices=IdentifierType.choices)
     identifier = models.CharField(max_length=255)
+    client_id = models.CharField(max_length=255, blank=True, default="", db_default="")
     value = models.DecimalField(
         verbose_name="Ценность конверсии",
         max_digits=10,
@@ -315,6 +322,7 @@ class WhoUpdateMetrikaConversion(models.Model):
     attempts = models.PositiveSmallIntegerField(default=0)
     next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
     api_upload_id = models.BigIntegerField(blank=True, null=True, db_index=True)
+    upload_history = models.JSONField(default=list, db_default=list(), blank=True)
     api_status = models.CharField(max_length=32, blank=True, default="")
     last_error = models.TextField(blank=True, default="")
     submitted_at = models.DateTimeField(blank=True, null=True)
@@ -383,6 +391,15 @@ class WhoUpdatePaymentOrder(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(blank=True, null=True)
+    checkout_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    metrika_funnel = models.ForeignKey(
+        WhoUpdateOnboardingFunnel,
+        on_delete=models.SET_NULL,
+        related_name="checkout_orders",
+        blank=True,
+        null=True,
+    )
+    is_test = models.BooleanField("Тестовый платёж", default=False, db_default=False)
     access_expires_at_after = models.DateTimeField(blank=True, null=True)
 
     class Meta:
@@ -392,6 +409,146 @@ class WhoUpdatePaymentOrder(models.Model):
 
     def __str__(self):
         return f"{self.user} — {self.get_plan_display()} ({self.get_status_display()})"
+
+
+class WhoUpdatePartnerSettings(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    is_active = models.BooleanField("Программа включена для всех", default=True)
+    commission_percent = models.DecimalField(
+        "Процент с покупки", max_digits=5, decimal_places=2, default=Decimal("30.00"),
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
+    started_at = models.DateTimeField("Начало программы", default=timezone.now, editable=False)
+
+    class Meta:
+        verbose_name = "Настройки партнёрской программы"
+        verbose_name_plural = "Настройки партнёрской программы"
+        constraints = [
+            models.CheckConstraint(condition=models.Q(id=1), name="wu_partner_settings_singleton"),
+            models.CheckConstraint(condition=models.Q(commission_percent__gte=0, commission_percent__lte=100), name="wu_partner_default_rate_range"),
+        ]
+
+    def __str__(self):
+        return f"Партнёрская программа — {self.commission_percent}%"
+
+
+class WhoUpdatePartnerProfile(models.Model):
+    user = models.OneToOneField(UserTg, on_delete=models.CASCADE, related_name="partner_profile", verbose_name="Партнёр")
+    is_active = models.BooleanField("Участие в денежной программе", default=True)
+    commission_percent = models.DecimalField(
+        "Индивидуальный процент", max_digits=5, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Пусто — общая ставка программы. Изменение действует только на новые оплаты.",
+    )
+    notes = models.TextField("Заметки о сотрудничестве", blank=True)
+
+    class Meta:
+        verbose_name = "Индивидуальные условия партнёра"
+        verbose_name_plural = "Индивидуальные условия партнёров"
+        constraints = [models.CheckConstraint(
+            condition=models.Q(commission_percent__isnull=True) | models.Q(commission_percent__gte=0, commission_percent__lte=100),
+            name="wu_partner_custom_rate_range",
+        )]
+
+    def __str__(self):
+        return str(self.user)
+
+
+class WhoUpdatePartnerWithdrawal(models.Model):
+    class Status(models.TextChoices):
+        NEW = "new", "Новая"
+        PAID = "paid", "Выплачена"
+        REJECTED = "rejected", "Отклонена"
+
+    partner = models.ForeignKey(UserTg, on_delete=models.PROTECT, related_name="partner_withdrawals", verbose_name="Партнёр")
+    request_key = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    amount = models.DecimalField("Сумма вывода", max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
+    status = models.CharField("Статус", max_length=10, choices=Status.choices, default=Status.NEW, db_index=True)
+    created_at = models.DateTimeField("Заявка создана", auto_now_add=True)
+    resolved_at = models.DateTimeField("Обработана", null=True, blank=True)
+    resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Кто обработал")
+    note = models.CharField("Номер перевода / причина отказа", max_length=500, blank=True)
+
+    class Meta:
+        verbose_name = "Заявка на вывод"
+        verbose_name_plural = "Заявки на вывод"
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(amount__gt=0), name="wu_partner_withdraw_positive"),
+            models.CheckConstraint(condition=(models.Q(status="new", resolved_at__isnull=True) | models.Q(status__in=["paid", "rejected"], resolved_at__isnull=False)), name="wu_partner_withdraw_state"),
+        ]
+
+    def __str__(self):
+        return f"Заявка #{self.pk} — {self.amount} ₽ ({self.get_status_display()})"
+
+
+class WhoUpdateWithdrawalDraft(models.Model):
+    partner = models.OneToOneField(UserTg, on_delete=models.CASCADE, related_name="withdrawal_draft")
+    token = models.UUIDField(default=uuid.uuid4, unique=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, null=True)
+    active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(default=timezone.now)
+
+
+class WhoUpdatePartnerCommission(models.Model):
+    class Status(models.TextChoices):
+        EARNED = "earned", "Начислено"
+        VOID = "void", "Аннулировано"
+
+    order = models.OneToOneField(WhoUpdatePaymentOrder, on_delete=models.PROTECT, related_name="partner_commission", verbose_name="Оплата")
+    partner = models.ForeignKey(UserTg, on_delete=models.PROTECT, related_name="partner_commissions", verbose_name="Партнёр")
+    buyer = models.ForeignKey(UserTg, on_delete=models.PROTECT, related_name="referral_commissions", verbose_name="Реферал")
+    purchase_amount = models.DecimalField("Сумма покупки", max_digits=8, decimal_places=2)
+    commission_percent = models.DecimalField("Процент на момент оплаты", max_digits=5, decimal_places=2)
+    amount = models.DecimalField("Начислено партнёру", max_digits=10, decimal_places=2)
+    status = models.CharField("Статус", choices=Status.choices, max_length=10, default=Status.EARNED, db_index=True)
+    created_at = models.DateTimeField("Начислено", default=timezone.now)
+    void_reason = models.CharField("Причина аннулирования", max_length=500, blank=True)
+    voided_at = models.DateTimeField("Аннулировано", null=True, blank=True)
+    voided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Кто аннулировал")
+
+    class Meta:
+        verbose_name = "Начисление партнёру"
+        verbose_name_plural = "Начисления партнёрам"
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(amount__gt=0, purchase_amount__gt=0, commission_percent__gt=0, commission_percent__lte=100), name="wu_partner_commission_positive"),
+            models.CheckConstraint(condition=~models.Q(partner=models.F("buyer")), name="wu_partner_no_self_commission"),
+            models.CheckConstraint(condition=models.Q(status__in=["earned", "void"]), name="wu_partner_commission_state"),
+        ]
+
+    def __str__(self):
+        return f"Начисление #{self.pk} — {self.amount} ₽"
+
+
+class WhoUpdateWheelReward(models.Model):
+    """One server-selected reward per Moscow day; immutable payment reservation."""
+
+    user = models.ForeignKey(UserTg, on_delete=models.CASCADE, related_name="wheel_rewards")
+    spin_day = models.DateField()
+    spin_reset_at = models.DateTimeField("Повторное вращение разрешено", null=True, blank=True)
+    granted_days = models.PositiveSmallIntegerField("Дней начислено без оплаты", default=0, db_default=0)
+    access_expires_at_after = models.DateTimeField("Доступ после начисления", null=True, blank=True)
+    prize = models.CharField(max_length=24)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    reserved_order = models.OneToOneField(
+        WhoUpdatePaymentOrder, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="wheel_reward",
+    )
+    confirmation_url = models.URLField(max_length=2048, blank=True)
+
+    class Meta:
+        verbose_name = "Выигрыш колеса"
+        verbose_name_plural = "Выигрыши колеса"
+        constraints = [models.UniqueConstraint(
+            fields=["user", "spin_day"], condition=models.Q(spin_reset_at__isnull=True),
+            name="wheel_one_active_spin_per_day",
+        )]
+
+    def __str__(self):
+        return f"Выигрыш #{self.pk} — {self.user}"
 
 
 class OperationalMetricBucket(models.Model):
@@ -491,6 +648,7 @@ class FileType(models.TextChoices):
     """Тип медиафайла в сообщении."""
     UNKNOWN = "UNKNOWN", "Неизвестно"
     PHOTO = "PHOTO", "Фото"
+    SELF_DESTRUCT_PHOTO = "SELF_DESTRUCT_PHOTO", "Самоуничтожающееся фото"
     AUDIO = "AUDIO", "Аудио"
     VIDEO = "VIDEO", "Видео"
     DOCUMENT = "DOCUMENT", "Документ"
@@ -546,6 +704,16 @@ class TelegramIncomingUpdate(models.Model):
             models.Index(
                 fields=["queue", "status", "next_attempt_at", "created_at"],
                 name="tg_incoming_worker_idx",
+            ),
+            models.Index(
+                fields=["status", "-id"],
+                condition=models.Q(status__in=["pending", "processing", "failed"]),
+                name="wu_incoming_active_id",
+            ),
+            models.Index(
+                fields=["queue", "-id"],
+                condition=models.Q(queue="priority"),
+                name="wu_incoming_priority_id",
             ),
         ]
 
@@ -635,8 +803,11 @@ class TelegramOutbox(models.Model):
         SEND_PHOTO = "sendPhoto", "sendPhoto"
         SEND_AUDIO = "sendAudio", "sendAudio"
         SEND_VIDEO = "sendVideo", "sendVideo"
+        SEND_VIDEO_NOTE_WITH_TEXT = "sendVideoNoteWithText", "Кружок, затем текст"
+        SEND_MEDIA_WITH_TEXT = "sendMediaWithText", "Медиа, затем текст"
         SEND_DOCUMENT = "sendDocument", "sendDocument"
         SEND_DOCUMENT_BYTES = "sendDocumentBytes", "sendDocumentBytes"
+        SEND_DOCUMENT_FILE = "sendDocumentFile", "sendDocumentFile"
 
     chat_id = models.BigIntegerField(verbose_name="Chat id")
     method = models.CharField(
@@ -766,6 +937,12 @@ class Message(models.Model):
     text = models.TextField(verbose_name="Text", default="", blank=True, null=True)
     chat_id = models.BigIntegerField(verbose_name="Chat id")
     file_id = models.CharField(verbose_name="File id", max_length=255, blank=True, null=True)
+    saved_photo_file_id = models.CharField(
+        "file_id сохранённой копии фото", max_length=255, blank=True, default="", db_default=""
+    )
+    saved_photo_source_file_id = models.CharField(
+        "Исходный file_id для сохранённой копии", max_length=255, blank=True, default="", db_default=""
+    )
     file_type = models.CharField(
         verbose_name="Тип файла",
         max_length=20,
@@ -777,6 +954,18 @@ class Message(models.Model):
     caption = models.TextField(verbose_name="Текст к файлу", blank=True, null=True)
     payload = models.TextField(verbose_name="payload", default="", blank=True, null=True)
     created_at = models.DateTimeField(verbose_name="Создано", auto_now_add=True, null=True, blank=True)
+    is_deleted = models.BooleanField("Удалено", default=False, db_default=False)
+    deleted_at = models.DateTimeField(
+        "Удаление зафиксировано", null=True, blank=True,
+        help_text="Время получения события Telegram, а не точное время удаления.",
+    )
+
+    @property
+    def available_photo_copy_id(self):
+        # An edited message can replace its attachment. Never show its old copy.
+        if self.saved_photo_source_file_id == self.file_id:
+            return self.saved_photo_file_id
+        return ""
 
     def __str__(self):
         return f'"{self.first_name}" ({self.created_at}): {self.text}'
@@ -806,4 +995,9 @@ class Message(models.Model):
                 name="wu_msg_history_user",
             ),
             models.Index(fields=["file_id"], name="wu_msg_file_id"),
+            models.Index(
+                fields=["-created_at", "-id"],
+                condition=models.Q(is_deleted=True),
+                name="wu_msg_deleted_date",
+            ),
         ]

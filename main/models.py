@@ -14,6 +14,14 @@ class Lead(models.Model):
     utm_term = models.CharField(max_length=255, blank=True)
     notification_sent = models.BooleanField("Уведомление отправлено", default=False)
     notification_error = models.TextField("Ошибка уведомления", blank=True)
+    notification_outbox = models.OneToOneField(
+        "webhook_tg.TelegramOutbox",
+        verbose_name="Доставка уведомления",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="lead",
+    )
     created_at = models.DateTimeField("Создана", auto_now_add=True, db_index=True)
 
     class Meta:

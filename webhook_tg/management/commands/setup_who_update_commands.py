@@ -7,7 +7,8 @@ from webhook_tg.telegram import set_bot_commands
 COMMANDS = [
     {"command": "start", "description": "Открыть WhoUpdate"},
     {"command": "status", "description": "Срок доступа и тарифы"},
-    {"command": "referral", "description": "Пригласить друга и получить 7 дней"},
+    {"command": "spin", "description": "Колесо призов — крутить бесплатно"},
+    {"command": "referral", "description": "+7 дней и 30% с покупок друзей"},
     {"command": "subscribe", "description": "Продлить доступ"},
     {"command": "history", "description": "История сообщений пользователя"},
     {"command": "mute", "description": "Удалять сообщения пользователя"},

@@ -78,7 +78,7 @@ class OperationalMetricsTests(TestCase):
         post.return_value = write_response
         bucket = OperationalMetricBucket.objects.create(
             metric_name=TELEGRAM_MESSAGES_SENT,
-            minute=timezone.now().replace(second=0, microsecond=0) - timedelta(minutes=1),
+            minute=timezone.now().replace(second=0, microsecond=0) - timedelta(minutes=2),
             labels_hash="hash",
             labels={"method": "sendMessage"},
             count=3,
@@ -86,7 +86,8 @@ class OperationalMetricsTests(TestCase):
             maximum=1,
         )
 
-        call_command("export_operational_metrics")
+        with patch("webhook_tg.management.commands.export_operational_metrics.publish_activity_mirror"):
+            call_command("export_operational_metrics")
 
         bucket.refresh_from_db()
         self.assertIsNotNone(bucket.exported_at)
@@ -105,3 +106,27 @@ class OperationalMetricsTests(TestCase):
         self.assertEqual(response.status_code, 400)
         bucket = OperationalMetricBucket.objects.get(metric_name=WEBHOOK_DURATION)
         self.assertEqual(bucket.labels["status"], "400")
+
+    @patch("webhook_tg.management.commands.export_operational_metrics.publish_activity_mirror")
+    @patch("webhook_tg.management.commands.export_operational_metrics._iam_token", return_value="test-token")
+    @patch("webhook_tg.management.commands.export_operational_metrics.requests.post")
+    def test_export_does_not_acknowledge_concurrent_increment(self, post, token, mirror):
+        from django.db.models import F
+        bucket = OperationalMetricBucket.objects.create(
+            metric_name=TELEGRAM_MESSAGES_SENT,
+            minute=timezone.now().replace(second=0, microsecond=0) - timedelta(minutes=2),
+            labels_hash="hash", labels={}, count=1, total=1, maximum=1,
+        )
+        def deliver(*args, **kwargs):
+            OperationalMetricBucket.objects.filter(pk=bucket.pk).update(count=F("count") + 1, total=F("total") + 1)
+            return Mock()
+        post.side_effect = deliver
+        call_command("export_operational_metrics")
+        bucket.refresh_from_db()
+        self.assertIsNone(bucket.exported_at)
+        self.assertEqual(bucket.count, 2)
+        post.side_effect = None
+        call_command("export_operational_metrics")
+        bucket.refresh_from_db()
+        self.assertIsNotNone(bucket.exported_at)
+        self.assertEqual(post.call_args.kwargs["json"]["metrics"][0]["value"], 2)

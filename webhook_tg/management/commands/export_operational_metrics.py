@@ -5,6 +5,7 @@ import os
 import requests
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Q
 from django.utils import timezone
 
 from webhook_tg.metrics import (
@@ -15,6 +16,7 @@ from webhook_tg.metrics import (
 )
 from webhook_tg.metric_snapshots import collect_database_gauges, collect_system_gauges
 from webhook_tg.models import OperationalMetricBucket
+from webhook_tg.activity_mirror import publish_activity_mirror
 
 METADATA_TOKEN_URL = (
     "http://169.254.169.254/computeMetadata/v1/instance/"
@@ -43,6 +45,7 @@ class Command(BaseCommand):
         parser.add_argument("--limit", type=int, default=500)
 
     def handle(self, *args, **options):
+        publish_activity_mirror()
         collect_database_gauges()
         collect_system_gauges()
         record_heartbeat("metrics_exporter", min_interval_seconds=0)
@@ -117,7 +120,13 @@ class Command(BaseCommand):
             raise CommandError(f"Could not export operational metrics: {exc}") from exc
 
         exported_at = timezone.now()
-        OperationalMetricBucket.objects.filter(id__in=[bucket.id for bucket in buckets]).update(
-            exported_at=exported_at
-        )
+        unchanged = Q(pk__in=[])
+        for bucket in buckets:
+            unchanged |= Q(
+                pk=bucket.pk, count=bucket.count, total=bucket.total,
+                maximum=bucket.maximum, exported_at__isnull=True,
+            )
+        # A delayed telemetry flush may have incremented a closed bucket during
+        # the HTTP request. Leave it pending instead of acknowledging unseen data.
+        OperationalMetricBucket.objects.filter(unchanged).update(exported_at=exported_at)
         self.stdout.write(self.style.SUCCESS(f"Exported {len(metrics)} metric points"))

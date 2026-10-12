@@ -419,6 +419,16 @@ class WebhookStartTests(NoTelegramApiTestCase):
         ]
         self.assertTrue(any("Укажите username" in message for message in messages))
         self.assertTrue(any("/history @username" in message for message in messages))
+        self.assertTrue(any("/history 123456789" in message for message in messages))
+        keyboards = [
+            get_post_call_args(call)[1].get("reply_markup", {})
+            for call in self.mock_post.call_args_list
+            if "sendMessage" in str(get_post_call_args(call)[0])
+        ]
+        self.assertIn({"inline_keyboard": [[{
+            "text": "У пользователя нет username или не знаю его ID",
+            "callback_data": "history:contacts",
+        }]]}, keyboards)
 
     def test_history_sends_only_current_owners_messages_as_txt(self):
         UserTg.objects.create(
@@ -487,6 +497,81 @@ class WebhookStartTests(NoTelegramApiTestCase):
         self.assertIn("[вложение: DOCUMENT]", archive)
         self.assertNotIn("Чужая переписка", archive)
         self.assertNotIn("Другой пользователь", archive)
+
+    def test_history_by_id_is_dispatched_once_for_repeated_update(self):
+        UserTg.objects.create(
+            user_id=700001,
+            chat_id=600001,
+            username="testuser",
+            business_connection_id="owner_conn",
+        )
+        Message.objects.create(
+            business_connection_id="owner_conn",
+            message_id=205,
+            chat_id=7210174607,
+            username_from=None,
+            text="Сообщение без username",
+        )
+        payload = make_start_payload(update_id=107)
+        payload["message"]["text"] = "/history 7210174607"
+
+        for _ in range(2):
+            response = self.client.post(
+                "/webhook_tg/",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 200)
+
+        document_calls = [
+            call
+            for call in self.mock_post.call_args_list
+            if "sendDocument" in str(get_post_call_args(call)[0])
+        ]
+        self.assertEqual(len(document_calls), 1)
+        filename, content, content_type = document_calls[0].kwargs["files"]["document"]
+        self.assertEqual(filename, "history_id_7210174607.txt")
+        self.assertEqual(content_type, "text/plain; charset=utf-8")
+        self.assertIn("Сообщение без username", content.decode("utf-8-sig"))
+
+    def test_history_contacts_button_exports_file_once_for_repeated_callback(self):
+        UserTg.objects.create(
+            user_id=700001, chat_id=700001, username="testuser", business_connection_id="owner_conn",
+        )
+        Message.objects.create(
+            business_connection_id="owner_conn", message_id=206, chat_id=301,
+            username_from="peer", text="Сохранённая переписка",
+        )
+        payload = {
+            "update_id": 108,
+            "callback_query": {
+                "id": "history_contacts_callback", "data": "history:contacts",
+                "from": {"id": 700001, "username": "testuser"},
+                "message": {"chat": {"id": 700001, "type": "private"}},
+            },
+        }
+
+        for _ in range(2):
+            response = self.client.post(
+                "/webhook_tg/", data=json.dumps(payload), content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 200)
+
+        document_calls = [
+            call for call in self.mock_post.call_args_list
+            if "sendDocument" in str(get_post_call_args(call)[0])
+        ]
+        self.assertEqual(len(document_calls), 1)
+        filename, content, content_type = document_calls[0].kwargs["files"]["document"]
+        self.assertEqual(filename, "history_contacts.txt")
+        self.assertEqual(content_type, "text/plain; charset=utf-8")
+        self.assertIn("Сохранённая переписка", content.decode("utf-8-sig"))
+        self.assertIn("/history 301", content.decode("utf-8-sig"))
+        self.assertTrue(TelegramOutbox.objects.filter(
+            chat_id=700001,
+            idempotency_key="command:108:history:contacts:document",
+            status=TelegramOutbox.Status.SENT,
+        ).exists())
 
 
 @override_settings(

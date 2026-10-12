@@ -5,14 +5,21 @@ from datetime import timedelta
 from pathlib import Path
 
 from django.core.management.base import BaseCommand
+from django.db.models import BigIntegerField, Exists, OuterRef
+from django.db.models.functions import Cast
 from django.utils import timezone
 
+from webhook_tg.background_tasks import (
+    ACCESS_EXPIRY_REMINDER_HOURS,
+    ACCESS_EXPIRY_REMINDER_TASK,
+    schedule_access_expiry_reminders,
+)
 from webhook_tg.config import (
     CONNECTION_REMINDER_REPLY_MARKUP,
     CONNECTION_REMINDER_TEXT,
     START_PHOTO_ID,
 )
-from webhook_tg.models import UserTg
+from webhook_tg.models import BackgroundTask, UserTg
 from webhook_tg.subscriptions import notify_access_expired
 from webhook_tg.telegram import dispatch_telegram_request
 from webhook_tg.metrics import record_heartbeat
@@ -54,6 +61,28 @@ class Command(BaseCommand):
                 .order_by("access_expires_at", "id")[:limit]
             )
             expired_sent = sum(notify_access_expired(user, at=now) for user in expired_users)
+
+            # Подхватываем пользователей, которым первое уведомление уже было
+            # отправлено до появления цепочки. Планируются только будущие сроки.
+            scheduled_reminders = BackgroundTask.objects.alias(
+                reminder_user_pk=Cast("payload__user_pk", BigIntegerField()),
+            ).filter(
+                task_type=ACCESS_EXPIRY_REMINDER_TASK,
+                reminder_user_pk=OuterRef("pk"),
+                created_at__gte=OuterRef("access_expires_at"),
+            )
+            recently_expired_users = (
+                UserTg.objects.filter(
+                    access_unlimited=False,
+                    access_expires_at__gt=now - timedelta(hours=max(ACCESS_EXPIRY_REMINDER_HOURS)),
+                    access_expires_at__lte=now,
+                    access_expired_notified_at__isnull=False,
+                )
+                .filter(~Exists(scheduled_reminders))
+                .order_by("access_expires_at", "id")[:limit]
+            )
+            for user in recently_expired_users:
+                schedule_access_expiry_reminders(user, at=now)
 
             users = list(
                 UserTg.objects.filter(

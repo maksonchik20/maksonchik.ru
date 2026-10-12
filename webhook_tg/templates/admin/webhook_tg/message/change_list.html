@@ -1,4 +1,4 @@
-{% extends "admin/change_list.html" %}
+{% extends "admin/webhook_tg/keyset_change_list.html" %}
 
 {% block extrahead %}
     {{ block.super }}
@@ -37,6 +37,17 @@
             font-size: 0.78rem;
             color: #6c757d;
             margin-bottom: 6px;
+        }
+        .wu-deleted-badge {
+            display: inline-block;
+            margin-left: 6px;
+            padding: 2px 7px;
+            border: 1px solid #f1b7b7;
+            border-radius: 5px;
+            background: #fff0f0;
+            color: #a12626;
+            font-size: 0.75rem;
+            font-weight: 600;
         }
         .wu-chat-text {
             white-space: normal;

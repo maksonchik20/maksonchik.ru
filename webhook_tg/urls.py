@@ -1,9 +1,11 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import payment_views, seo_views, views
+from . import payment_views, seo_views, views, wheel_views
 
 urlpatterns = [
+    path("bot/wheel/", wheel_views.wheel_app, name="who_update_wheel"),
+    path("bot/wheel/api/<str:action>/", wheel_views.wheel_api, name="who_update_wheel_api"),
     path(
         "bot/",
         RedirectView.as_view(url="https://who-update.ru/", permanent=True),

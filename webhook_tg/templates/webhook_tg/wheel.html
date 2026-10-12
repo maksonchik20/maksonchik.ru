@@ -1,0 +1,42 @@
+{% load static %}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#f6f7fb">
+  <title>Колесо бонусов · WhoUpdate</title>
+  <link rel="stylesheet" href="{% static 'webhook_tg/wheel.css' %}?v=2">
+  <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
+  <script src="{% static 'webhook_tg/wheel.js' %}?v=3" defer></script>
+</head>
+<body>
+<main>
+  <header><a href="https://t.me/who_update_bot" class="brand"><img src="/who-update-favicon.svg" alt="" width="32" height="32">WhoUpdate<span>бонусы</span></a></header>
+  <section id="gate" role="status"><span class="loader" aria-hidden="true"></span><h1>Один момент…</h1><p>Проверяем доступ через Telegram</p></section>
+  <div id="app" hidden>
+    <section class="intro"><span class="eyebrow">КАЖДЫЙ ДЕНЬ. НОВЫЙ БОНУС.</span><h1>Пусть повезёт<span>твоей подписке.</span></h1><p>Скидка или больше дней с WhoUpdate.<br>На колесе нет пустых секторов.</p></section>
+    <section class="wheel-area" aria-label="Колесо с шестью призами">
+      <span class="spark spark-a">✦</span><span class="spark spark-b">✧</span>
+      <div class="wheel-frame"><div id="wheel" class="wheel" aria-hidden="true">
+        <div class="sector s0"><strong>−10%</strong><small>к оплате</small></div>
+        <div class="sector s1"><strong>−15%</strong><small>к оплате</small></div>
+        <div class="sector s2"><strong>−20%</strong><small>к оплате</small></div>
+        <div class="sector s3"><strong>+3</strong><small>дня доступа</small></div>
+        <div class="sector s4"><strong>+7</strong><small>дней доступа</small></div>
+        <div class="sector s5"><strong>×2</strong><small>срока</small></div>
+      </div><div class="hub"><img src="/who-update-favicon.svg" alt="" width="52" height="52"></div><div class="pointer" aria-hidden="true"></div></div>
+      <span class="wheel-shadow"></span>
+    </section>
+    <section class="action"><button id="spin" type="button" disabled>Крутить бесплатно <span>↗</span></button><p id="spin-note">1 вращение в день · 6 призов · без проигрыша</p></section>
+    <section id="result" class="result" hidden aria-live="polite"><span class="eyebrow" id="result-caption">ТВОЙ ПРИЗ</span><h2 id="reward-label"></h2><p id="reward-note"></p><div class="timer" id="timer"></div></section>
+    <section id="tariffs" hidden><div class="section-heading"><h2>Выбери свой срок</h2><span>Бонус уже учтён</span></div><div id="plans"></div></section>
+    <p id="error" role="alert" hidden></p>
+    <details><summary>Как это работает <span>+</span></summary><p>Одно бесплатное вращение каждый день. Новая попытка появляется в 00:00 по Москве, неиспользованные попытки не накапливаются. Призы +3 дня и +7 дней сразу продлевают доступ бесплатно — оплачивать ничего не нужно. Если доступ закончился, дни отсчитываются с момента выигрыша. Скидка и удвоение срока применяются к одной покупке в течение 24 часов. Новый приз заменяет предыдущий неиспользованный бонус к покупке; уже начисленные дни сохраняются. После создания оплаты её цена и срок сохраняются даже при новом вращении. Бонусы к покупке и другие акции не суммируются.</p></details>
+    <footer>Больше спокойствия. Больше WhoUpdate.</footer>
+  </div>
+  <noscript>Для колеса нужен JavaScript. Открой Mini App в Telegram.</noscript>
+</main>
+</body>
+</html>

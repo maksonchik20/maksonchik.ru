@@ -3,6 +3,7 @@ import html
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from django.utils import timezone
 
 from .models import FileType
 
@@ -18,6 +19,12 @@ def format_message_html(message) -> str:
     if has_file:
         media_label = dict(FileType.choices).get(message.file_type, message.file_type)
         header = f"[{media_label}] file_id: {message.file_id}"
+        if message.file_type == FileType.SELF_DESTRUCT_PHOTO:
+            copy_id = message.available_photo_copy_id
+            header += (
+                f"\nfile_id сохранённой копии: {copy_id}"
+                if copy_id else "\nСохранённой копии пока нет."
+            )
         if text:
             text = f"{header}\n{text}"
         else:
@@ -39,12 +46,22 @@ def format_message_html(message) -> str:
     who = " ".join(name_parts) or "Unknown"
 
     when = message.created_at.strftime("%d.%m.%Y %H:%M:%S") if message.created_at else "—"
+    deletion_badge = ""
+    if message.is_deleted:
+        observed = (
+            timezone.localtime(message.deleted_at).strftime("%d.%m.%Y %H:%M:%S")
+            if message.deleted_at else ""
+        )
+        deletion_badge = format_html(
+            '<span class="wu-deleted-badge" title="{}">Удалено</span>',
+            f"Удаление зафиксировано: {observed}" if observed else "Удаление подтверждено Telegram",
+        )
 
     if has_file:
         preview_url = reverse("admin:webhook_tg_message_preview_file")
         return format_html(
             '<div class="wu-chat-row wu-chat-msg">'
-            '<div class="wu-chat-meta">{} · {}</div>'
+            '<div class="wu-chat-meta">{} · {} {}</div>'
             '<div class="wu-chat-text">{}</div>'
             '<button type="button" class="wu-show-file" '
             'data-preview-url="{}" data-file-id="{}" data-file-type="{}">'
@@ -53,6 +70,7 @@ def format_message_html(message) -> str:
             "</div>",
             who,
             when,
+            deletion_badge,
             mark_safe(safe),
             preview_url,
             message.file_id,
@@ -61,10 +79,11 @@ def format_message_html(message) -> str:
 
     return format_html(
         '<div class="wu-chat-row wu-chat-msg">'
-        '<div class="wu-chat-meta">{} · {}</div>'
+        '<div class="wu-chat-meta">{} · {} {}</div>'
         '<div class="wu-chat-text">{}</div>'
         "</div>",
         who,
         when,
+        deletion_badge,
         mark_safe(safe),
     )

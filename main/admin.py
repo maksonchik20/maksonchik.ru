@@ -21,6 +21,7 @@ class LeadAdmin(admin.ModelAdmin):
         "utm_term",
         "notification_sent",
         "notification_error",
+        "notification_outbox",
         "created_at",
     )
 

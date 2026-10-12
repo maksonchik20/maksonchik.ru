@@ -10,7 +10,7 @@ from django.conf import settings
 from django.core import signing
 from django.db import transaction
 from django.http import Http404, HttpResponse, HttpResponseForbidden
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -18,12 +18,13 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .config import OWNER_CHAT_ID
 from .background_tasks import schedule_payment_reconciliation
-from .models import TelegramOutbox, UserTg, WhoUpdatePaymentOrder
+from .models import TelegramOutbox, UserTg, WhoUpdateOnboardingFunnel, WhoUpdatePaymentOrder
 from .outbox import enqueue_outbox
 from .subscriptions import CHECKOUT_SIGNING_SALT, plan_config_for_user
 from .metrics import PAYMENT_EVENTS, observe_metric
 from .metrika_offline import queue_purchase_conversion
 from .yookassa import YooKassaError, create_payment, get_payment, is_webhook_ip
+from .wheel import active_reward, is_pilot, order_text
 
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ def _user_label(bot_user):
 
 
 def _enqueue_owner_checkout_notification(order):
+    WhoUpdatePaymentOrder.objects.filter(pk=order.pk, checkout_at__isnull=True).update(checkout_at=timezone.now())
     enqueue_outbox(
         chat_id=OWNER_CHAT_ID,
         method=TelegramOutbox.Method.SEND_MESSAGE,
@@ -48,8 +50,8 @@ def _enqueue_owner_checkout_notification(order):
             "text": (
                 "💳 <b>WhoUpdate: переход к оплате</b>\n\n"
                 f"{_user_label(order.user)}\n"
-                f"Тариф: <b>{html.escape(order.get_plan_display())}</b>\n"
-                f"Сумма: <b>{order.amount} ₽</b>\n"
+                + _order_summary(order)
+                +
                 f"Заказ: <code>{order.public_id}</code>"
             ),
             "parse_mode": "HTML",
@@ -67,8 +69,8 @@ def _enqueue_owner_paid_notification(order, expires):
             "text": (
                 "✅ <b>WhoUpdate: получена оплата</b>\n\n"
                 f"{_user_label(order.user)}\n"
-                f"Тариф: <b>{html.escape(order.get_plan_display())}</b>\n"
-                f"Сумма: <b>{order.amount} ₽</b>\n"
+                + _order_summary(order)
+                +
                 f"Доступ до: <b>{expires:%d.%m.%Y %H:%M}</b> МСК\n"
                 f"Заказ: <code>{order.public_id}</code>"
             ),
@@ -87,11 +89,19 @@ def _enqueue_user_paid_notification(order, expires):
             "text": (
                 "✅ <b>Оплата WhoUpdate прошла</b>\n\n"
                 f"Доступ продлён до <b>{expires:%d.%m.%Y %H:%M}</b> МСК."
+                + (f"\n\n{order_text(order)}" if order_text(order) else "")
             ),
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
         },
     )
+
+
+def _order_summary(order):
+    personal = order_text(order)
+    if personal:
+        return personal + "\n"
+    return f"Тариф: <b>{html.escape(order.get_plan_display())}</b>\nСумма: <b>{order.amount} ₽</b>\n"
 
 
 def _client_ip(request):
@@ -113,9 +123,50 @@ def _payment_is_valid(payment, order):
 
 
 @transaction.atomic
+def payment_checkout(request, order, confirmation_url):
+    # Serialize checkout reuse without taking an unnecessary user lock.
+    order = (
+        WhoUpdatePaymentOrder.objects.select_for_update()
+        .get(pk=order.pk)
+    )
+    funnel = order.metrika_funnel
+    if funnel is None:
+        funnel = WhoUpdateOnboardingFunnel.objects.create(
+            user_id=order.user_id,
+            landing_path="/bot/checkout/",
+            landing_viewed_at=timezone.now(),
+            metrika_counter_id=settings.WHO_UPDATE_METRIKA_COUNTER_ID,
+        )
+        order.metrika_funnel = funnel
+        order.save(update_fields=["metrika_funnel"])
+    response = render(
+        request,
+        "webhook_tg/payment_checkout.html",
+        {
+            "order": order,
+            "confirmation_url": confirmation_url,
+            "checkoutFieldToValue": {
+                "confirmationUrl": confirmation_url,
+                "trackingCode": funnel.tracking_code,
+                "counterId": funnel.metrika_counter_id
+                or settings.WHO_UPDATE_METRIKA_COUNTER_ID,
+                "captureUrl": reverse("who_update_metrika_client_id"),
+            },
+        },
+    )
+    response["Cache-Control"] = "no-store"
+    response["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@transaction.atomic
 def fulfill_order(order, payment_id):
+    # Pilot checkout also locks user -> order. Keep lock order consistent.
+    if is_pilot(order.user):
+        UserTg.objects.select_for_update().get(pk=order.user_id)
     order = WhoUpdatePaymentOrder.objects.select_for_update().select_related("user").get(pk=order.pk)
     if order.status == WhoUpdatePaymentOrder.Status.PAID:
+        queue_purchase_conversion(order)
         return order
 
     payment = get_payment(payment_id)
@@ -132,16 +183,23 @@ def fulfill_order(order, payment_id):
 
     order.status = WhoUpdatePaymentOrder.Status.PAID
     order.paid_at = now
+    order.is_test = bool(payment.get("test", False))
     order.yookassa_payment_id = payment_id
     order.access_expires_at_after = bot_user.access_expires_at
     order.save(
         update_fields=[
             "status",
             "paid_at",
+            "is_test",
             "yookassa_payment_id",
             "access_expires_at_after",
         ]
     )
+    from .partners import accrue_commission
+    accrue_commission(order)
+    if is_pilot(bot_user):
+        from .models import WhoUpdateWheelReward
+        WhoUpdateWheelReward.objects.filter(user=bot_user, reserved_order=order, used_at=None).update(used_at=now)
     queue_purchase_conversion(order, occurred_at=now)
     observe_metric(PAYMENT_EVENTS, 1, {"status": "paid", "plan": order.plan})
 
@@ -170,6 +228,10 @@ def subscribe(request, plan, token):
         raise Http404
     if bot_user.access_unlimited:
         return HttpResponse("Для этого аккаунта пока включён бессрочный доступ.", status=409)
+
+    if is_pilot(bot_user) and (payload.get("wheel_reward") is not None or active_reward(bot_user)):
+        from .wheel_checkout import checkout
+        return checkout(bot_user, plan, payload.get("wheel_reward"), request=request)
 
     order = WhoUpdatePaymentOrder.objects.create(
         user=bot_user,
@@ -205,7 +267,7 @@ def subscribe(request, plan, token):
     schedule_payment_reconciliation(order)
     _enqueue_owner_checkout_notification(order)
     observe_metric(PAYMENT_EVENTS, 1, {"status": "checkout", "plan": order.plan})
-    return redirect(payment["confirmation_url"])
+    return payment_checkout(request, order, payment["confirmation_url"])
 
 
 @require_GET
@@ -217,7 +279,7 @@ def payment_result(request, public_id):
             order.refresh_from_db()
         except YooKassaError:
             logger.exception("WhoUpdate payment verification failed order=%s", order.public_id)
-    return render(request, "webhook_tg/payment_result.html", {"order": order})
+    return render(request, "webhook_tg/payment_result.html", {"order": order, "wheel_order_text": order_text(order)})
 
 
 @csrf_exempt

@@ -84,7 +84,9 @@ class WhoUpdateAccessTests(TestCase):
             trial_started_at=now,
             access_expires_at=now + timedelta(days=14),
         )
-        invitee = UserTg.objects.create(user_id=200, chat_id=200)
+        invitee = UserTg.objects.create(
+            user_id=200, chat_id=200, first_name="Анна & <Маша>", username="anna_test",
+        )
         self.assertTrue(register_referral(invitee, f"ref_{inviter.referral_code}"))
         invitee.refresh_from_db()
 
@@ -99,6 +101,8 @@ class WhoUpdateAccessTests(TestCase):
         self.assertEqual(inviter.access_expires_at, now + timedelta(days=21))
         self.assertIsNotNone(invitee.referral_rewarded_at)
         send_message.assert_called_once()
+        self.assertEqual(send_message.call_args.args[0], inviter.chat_id)
+        self.assertIn("<b>Анна &amp; &lt;Маша&gt;</b> (@anna_test)", send_message.call_args.args[1])
 
     @patch("webhook_tg.telegram.tg_send_message", return_value=True)
     def test_expired_owner_business_updates_are_blocked_once(self, send_message):
@@ -120,7 +124,7 @@ class WhoUpdateAccessTests(TestCase):
         self.assertIn("99 ₽", message)
         self.assertIn("https://t.me/who_update_bot?start=ref_", message)
         self.assertIn("/referral", message)
-        self.assertEqual(len(keyboard["inline_keyboard"]), 3)
+        self.assertEqual(len(keyboard["inline_keyboard"]), 4)  # Public Mini App entry.
 
 
 @override_settings(
@@ -165,7 +169,7 @@ class WhoUpdatePaymentTests(TestCase):
         self.assertEqual(plan_config_for_user(regular_user, "month")["amount"], Decimal("99.00"))
         self.assertEqual(
             plan_config_for_user(self.user, "three_months")["amount"],
-            Decimal("199.00"),
+            Decimal("249.00"),
         )
 
     @patch("webhook_tg.payment_views.create_payment")
@@ -176,7 +180,7 @@ class WhoUpdatePaymentTests(TestCase):
         }
         response = self.client.get(f"/bot/subscribe/month/{checkout_token(self.user, 'month')}/")
 
-        self.assertEqual(response.status_code, 302)
+        self.assertContains(response, "https://yookassa.test/confirmation")
         order = WhoUpdatePaymentOrder.objects.get(yookassa_payment_id="test-one-ruble-payment")
         self.assertEqual(order.amount, Decimal("99.00"))
         self.assertEqual(create_payment_mock.call_args.kwargs["amount"], Decimal("99.00"))

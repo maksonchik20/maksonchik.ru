@@ -18,10 +18,21 @@ REFERRAL_REWARD_DAYS = 7
 CHECKOUT_SIGNING_SALT = "who-update-checkout-v1"
 BOT_USERNAME = "who_update_bot"
 
+PURCHASE_PROMOTION_TEXT = (
+    "🍀 <b>А может повезёт?</b>\n"
+    "Считаем оплаченные покупки <b>всех пользователей вместе</b>. "
+    "Если ваша покупка окажется 5-й, 10-й, 15-й и так далее — "
+    "<b>удвоим срок по выбранному тарифу</b>:\n\n"
+    "• 1 месяц → <b>2 месяца</b>\n"
+    "• 3 месяца → <b>6 месяцев</b>\n"
+    "• 1 год → <b>2 года</b>\n\n"
+    "Бонус может выпасть уже при первой покупке!"
+)
+
 PLAN_CONFIG = {
     "month": {"label": "1 месяц", "days": 30, "amount": Decimal("99.00")},
-    "three_months": {"label": "3 месяца", "days": 90, "amount": Decimal("199.00")},
-    "year": {"label": "1 год", "days": 365, "amount": Decimal("599.00")},
+    "three_months": {"label": "3 месяца", "days": 90, "amount": Decimal("249.00")},
+    "year": {"label": "1 год", "days": 365, "amount": Decimal("800.00")},
 }
 
 
@@ -34,7 +45,9 @@ def plan_config_for_user(bot_user: UserTg, plan: str) -> dict | None:
     config = PLAN_CONFIG.get(plan)
     if config is None:
         return None
-    return dict(config)
+    from .wheel import active_reward, reward_config
+    reward = active_reward(bot_user)
+    return reward_config(config, reward) if reward else dict(config)
 
 
 def _rubles(amount: Decimal) -> str:
@@ -59,13 +72,27 @@ def referral_link(bot_user: UserTg) -> str:
     return f"https://t.me/{BOT_USERNAME}?start=ref_{bot_user.referral_code}"
 
 
+@transaction.atomic
 def register_referral(invitee: UserTg, start_payload: str) -> bool:
     payload = (start_payload or "").strip()
-    if not payload.lower().startswith("ref_") or invitee.referred_by_id:
+    if not payload.lower().startswith("ref_"):
+        return False
+    current = UserTg.objects.select_for_update().get(pk=invitee.pk)
+    if current.referred_by_id:
+        invitee.referred_by_id = current.referred_by_id
+        return False
+    # A later referral link must not attribute an already connected user,
+    # including disconnected users and legacy records without timestamps.
+    if (
+        current.business_is_connected
+        or current.business_connected_at is not None
+        or current.business_disconnected_at is not None
+        or current.business_connection_id
+    ):
         return False
     code = payload[4:]
     inviter = UserTg.objects.filter(referral_code=code).first()
-    if inviter is None or inviter.pk == invitee.pk:
+    if inviter is None or inviter.pk == current.pk or inviter.user_id == current.user_id:
         return False
     invitee.referred_by = inviter
     invitee.save(update_fields=["referred_by"])
@@ -99,30 +126,47 @@ def grant_referral_reward(invitee: UserTg, at=None) -> bool:
 
     from .telegram import tg_send_message
 
+    referral_name = html.escape((invitee.first_name or "").strip() or "Пользователь")
+    referral_username = (invitee.username or "").strip().lstrip("@")
+    referral_identity = f"<b>{referral_name}</b>"
+    if referral_username:
+        referral_identity += f" (@{html.escape(referral_username)})"
+
     transaction.on_commit(
         lambda: tg_send_message(
             inviter.chat_id,
             "🎁 <b>Реферальный бонус начислен</b>\n\n"
-            f"Ваш друг подключил WhoUpdate. Доступ продлён на {REFERRAL_REWARD_DAYS} дней.",
+            f"Ваш реферал {referral_identity} подключил WhoUpdate.\n"
+            f"Доступ продлён на {REFERRAL_REWARD_DAYS} дней.",
         )
     )
     return True
 
 
-def checkout_token(bot_user: UserTg, plan: str) -> str:
+def checkout_token(bot_user: UserTg, plan: str, config=None) -> str:
+    payload = {"user_id": bot_user.user_id, "plan": plan}
+    config = config if config is not None else plan_config_for_user(bot_user, plan)
+    if config and config.get("reward_id"):
+        payload["wheel_reward"] = config["reward_id"]
     return signing.dumps(
-        {"user_id": bot_user.user_id, "plan": plan},
+        payload,
         salt=CHECKOUT_SIGNING_SALT,
         compress=True,
     )
 
 
-def checkout_url(bot_user: UserTg, plan: str) -> str:
+def checkout_url(bot_user: UserTg, plan: str, config=None) -> str:
     site_url = getattr(settings, "WHO_UPDATE_SITE_URL", "https://maksonchik.ru").rstrip("/")
-    return f"{site_url}/bot/subscribe/{plan}/{checkout_token(bot_user, plan)}/"
+    return f"{site_url}/bot/subscribe/{plan}/{checkout_token(bot_user, plan, config=config)}/"
 
 
 def subscription_keyboard(bot_user: UserTg) -> dict:
+    from .wheel import is_pilot, app_url, plan_text
+    if is_pilot(bot_user):
+        return {"inline_keyboard": [
+            [{"text": plan_text(config, button=True), "url": checkout_url(bot_user, plan, config=config)}]
+            for plan in PLAN_CONFIG for config in [plan_config_for_user(bot_user, plan)]
+        ] + [[{"text": "🎡 Колесо бонусов", "web_app": {"url": app_url()}}]]}
     month = plan_config_for_user(bot_user, "month")
     three_months = plan_config_for_user(bot_user, "three_months")
     year = plan_config_for_user(bot_user, "year")
@@ -161,34 +205,22 @@ def access_status_text(bot_user: UserTg, at=None) -> str:
         "⏳ <b>Доступ к WhoUpdate</b>\n\n"
         f"{access_line}\n"
         f"Бонус за приглашённых: <b>{bot_user.referral_bonus_days} дн.</b>\n\n"
-        "Продлить доступ можно оплатой или приглашением друга."
+        "Продлить доступ можно оплатой или приглашением друга.\n\n"
+        f"{purchase_promotion_text(bot_user)}"
         f"{referral_section}"
-    )
-
-
-def referral_text(bot_user: UserTg) -> str:
-    link = referral_link(bot_user)
-    return (
-        "👥 <b>Приглашайте друзей</b>\n\n"
-        f"За каждого человека, который впервые подключит WhoUpdate по вашей ссылке, "
-        f"вы получите <b>{REFERRAL_REWARD_DAYS} дней</b> доступа.\n\n"
-        f"Ваша ссылка:\n<code>{html.escape(link)}</code>"
-        "\n\nПосмотреть её повторно можно командой /referral."
     )
 
 
 def expired_access_text(bot_user: UserTg) -> str:
     link = referral_link(bot_user)
-    month = plan_config_for_user(bot_user, "month")
-    three_months = plan_config_for_user(bot_user, "three_months")
-    year = plan_config_for_user(bot_user, "year")
     return (
-        "⛔️ <b>Доступ к WhoUpdate закончился</b>\n\n"
+        "🚨 <b>Новые сообщения больше не сохраняются!</b>\n\n"
+        "Доступ к WhoUpdate закончился. Если собеседник удалит новое сообщение сейчас, "
+        "<b>бот не сможет его восстановить.</b>\n\n"
         "Продлить доступ можно одним из двух способов:\n\n"
         "💳 <b>Оплатить подписку</b>\n"
-        f"1 месяц — {_rubles(month['amount'])}, "
-        f"3 месяца — {_rubles(three_months['amount'])}, "
-        f"1 год — {_rubles(year['amount'])}.\n\n"
+        f"{subscription_prices_text(bot_user)}.\n\n"
+        f"{purchase_promotion_text(bot_user)}\n\n"
         f"👥 <b>Пригласить друга и получить {REFERRAL_REWARD_DAYS} дней</b>\n"
         "Бонус будет начислен, когда приглашённый пользователь полностью подключит бота.\n\n"
         f"Ваша реферальная ссылка:\n<code>{html.escape(link)}</code>\n\n"
@@ -196,17 +228,40 @@ def expired_access_text(bot_user: UserTg) -> str:
     )
 
 
+def subscription_prices_text(bot_user):
+    from .wheel import plan_text
+    return ", ".join(plan_text(plan_config_for_user(bot_user, plan)) for plan in PLAN_CONFIG)
+
+
+def purchase_promotion_text(bot_user):
+    from .wheel import active_reward
+    if active_reward(bot_user):
+        return "🎁 <b>Твой бонус колеса</b>\n" + subscription_prices_text(bot_user) + "\nБонус на одну покупку; акции не суммируются."
+    return PURCHASE_PROMOTION_TEXT
+
+
 def notify_access_expired(bot_user: UserTg, at=None) -> bool:
     at = at or timezone.now()
-    if bot_user.access_unlimited or bot_user.has_active_access(at):
-        return False
+    from .background_tasks import schedule_access_expiry_reminders
 
-    claimed = UserTg.objects.filter(
-        pk=bot_user.pk,
-        access_expired_notified_at__isnull=True,
-    ).update(access_expired_notified_at=at)
-    if not claimed:
-        return False
+    with transaction.atomic():
+        bot_user = UserTg.objects.select_for_update().filter(pk=bot_user.pk).first()
+        if (
+            bot_user is None
+            or bot_user.has_active_access(at)
+            or bot_user.access_expired_notified_at is not None
+        ):
+            return False
+
+        # Очередь и отметка первого уведомления сохраняются вместе: сбой БД
+        # не должен оставить пользователя без последующих напоминаний.
+        schedule_access_expiry_reminders(bot_user, at=at)
+        claimed = UserTg.objects.filter(
+            pk=bot_user.pk,
+            access_expired_notified_at__isnull=True,
+        ).update(access_expired_notified_at=at)
+        if not claimed:
+            return False
 
     from .telegram import tg_send_message
 

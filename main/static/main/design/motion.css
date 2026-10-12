@@ -1,0 +1,102 @@
+:root { --motion-ease: cubic-bezier(.22, 1, .36, 1); }
+.hero-line { display: block; }
+.work-visual { position: relative; isolation: isolate; }
+.work-visual > * { position: relative; z-index: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* One short entrance per element; no continuously moving decoration. */
+  .motion-enabled .home-hero.motion-entered .marked-word::before {
+    transform-origin: left center;
+    animation: marker-draw 850ms 360ms var(--motion-ease) both;
+  }
+  .motion-enabled .work-card.motion-entered .work-visual::after {
+    content: '';
+    position: absolute;
+    inset: -50% -25%;
+    pointer-events: none;
+    z-index: 2;
+    opacity: 0;
+    background: linear-gradient(105deg, transparent 36%, #ffffff22 49%, transparent 63%);
+    animation: cover-light 1350ms 120ms var(--motion-ease) both;
+  }
+  .btn, .circle-link, .nav-contact, .back-top {
+    transition: transform 240ms var(--motion-ease), background 240ms, box-shadow 240ms;
+  }
+  .btn > span, .text-link > span, .price-link > span, .nav-contact > span,
+  .contact-bottom a > span, .solution-row > span {
+    display: inline-block;
+    transition: transform 320ms var(--motion-ease);
+  }
+  .btn:is(:hover, :focus-visible) > span,
+  .price-link:is(:hover, :focus-visible) > span,
+  .nav-contact:is(:hover, :focus-visible) > span,
+  .contact-bottom a:is(:hover, :focus-visible) > span {
+    transform: translate(3px, -3px);
+  }
+  .text-link:is(:hover, :focus-visible) > span { transform: translateY(4px); }
+  .btn-primary:is(:hover, :focus-visible) { box-shadow: 0 7px 0 -3px #a2b94f44; }
+  .btn:active, .circle-link:active { transform: translateY(1px) scale(.98); }
+  .service-row {
+    background-image: linear-gradient(#e9efda, #e9efda);
+    background-repeat: no-repeat;
+    background-position: left center;
+    background-size: 0% 100%;
+    transition: background-size 520ms var(--motion-ease), background-color 250ms;
+  }
+  .service-row:is(:hover, :focus-within) { background-color: transparent; background-size: 100% 100%; }
+  .service-row:focus-within .circle-link { background: var(--accent); border-color: var(--accent); }
+  .solution-row:is(:hover, :focus-visible) > span { transform: translate(4px, -4px); }
+  .price-tile { transition: background-color 350ms; }
+  .price-tile:focus-within { background-color: #e4edce; }
+  .faq-item[open] > p { animation: detail-in 280ms var(--motion-ease); }
+  .lead-dialog[open] { animation: dialog-in 300ms var(--motion-ease); }
+  .lead-success.is-visible .success-check { animation: check-in 480ms var(--motion-ease); }
+  .nav-links.is-open { animation: detail-in 240ms var(--motion-ease); }
+  .brand-mark { transition: transform 450ms var(--motion-ease); }
+  .nav-brand:is(:hover, :focus-visible) .brand-mark { transform: rotate(-12deg); }
+  .back-top:is(:hover, :focus-visible) { transform: translateY(-4px); }
+}
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  /* Individual properties compose with the existing rotation and WAAPI entrances. */
+  .motion-enabled .hero-sculpture {
+    translate: var(--motion-x, 0px) calc(var(--motion-y, 0px) + var(--motion-scroll, 0px));
+    rotate: var(--motion-turn, 0deg);
+    transition: translate 600ms var(--motion-ease), rotate 800ms var(--motion-ease);
+  }
+  .motion-enabled .work-visual :is(.market-wordmark, .project-type) {
+    translate: var(--motion-x, 0px) var(--motion-y, 0px);
+    rotate: var(--motion-turn, 0deg);
+    transition: translate 650ms var(--motion-ease), rotate 650ms var(--motion-ease);
+  }
+  .project-type > span { transition: rotate 800ms var(--motion-ease), scale 600ms var(--motion-ease); }
+  .work-card-2:hover .project-type > span { rotate: -12deg; }
+  .work-card-3:hover .project-type > span { rotate: 90deg; }
+  .work-card-4:hover .project-type > span { rotate: 90deg; scale: 1.08; }
+  .work-card-1 .market-wordmark > span { transition: rotate 800ms var(--motion-ease); }
+  .work-card-1:hover .market-wordmark > span { rotate: -3deg; }
+  .motion-enabled .section-asterisk { transition: rotate 1200ms var(--motion-ease); }
+  #services:hover .section-asterisk { rotate: 90deg; }
+}
+
+@keyframes marker-draw {
+  from { transform: rotate(-2.2deg) scaleX(0); }
+  to { transform: rotate(-2.2deg) scaleX(1); }
+}
+@keyframes cover-light {
+  0% { opacity: 0; transform: translateX(-75%); }
+  35% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(75%); }
+}
+@keyframes detail-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(18px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes check-in {
+  from { opacity: 0; transform: scale(.5) rotate(-15deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}

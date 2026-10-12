@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Переход к оплате — WhoUpdate</title>
+  <style>
+    body { margin: 0; padding: 32px 20px; background: #f6f7f9; color: #172033; font: 16px/1.5 system-ui, sans-serif; }
+    main { max-width: 420px; margin: 12vh auto; padding: 32px; background: white; border-radius: 24px; }
+    h1 { font-size: 25px; line-height: 1.2; }
+    a { display: inline-block; margin-top: 8px; padding: 12px 20px; border-radius: 12px; color: white; background: #1685f8; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Переходим к оплате</h1>
+    <p>WhoUpdate · Доступ на {{ order.duration_days }} дн. · {{ order.amount }} ₽</p>
+    <p>Сейчас откроется защищённая страница ЮKassa.</p>
+    <a href="{{ confirmation_url }}" rel="noreferrer">Перейти к оплате</a>
+    <noscript><p>Нажмите кнопку выше, чтобы продолжить без JavaScript.</p></noscript>
+  </main>
+  {{ checkoutFieldToValue|json_script:"checkout-data" }}
+  <script>
+    (function () {
+      var checkoutFieldToValue = JSON.parse(document.getElementById("checkout-data").textContent);
+      var redirected = false;
+      var visitSent = false;
+      var clientCaptured = false;
+      function continueToPayment() {
+        if (redirected) return;
+        redirected = true;
+        window.location.replace(checkoutFieldToValue.confirmationUrl);
+      }
+      function finishAnalytics() {
+        if (visitSent && clientCaptured) continueToPayment();
+      }
+      // Analytics must never prevent a payment when blocked or unavailable.
+      window.setTimeout(continueToPayment, 1200);
+      (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+        m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0];
+        k.async=1;k.src=r;a.parentNode.insertBefore(k,a);})
+        (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
+      ym(checkoutFieldToValue.counterId, "init", {
+        defer: true,
+        webvisor: false,
+        clickmap: false,
+        trackLinks: false,
+        trackHash: false,
+        accurateTrackBounce: false,
+        ecommerce: false,
+        disableYtm: true,
+        sendTitle: false
+      });
+      var sanitizedReferer = "";
+      try {
+        if (document.referrer) sanitizedReferer = new URL(document.referrer).origin + "/";
+      } catch (error) {}
+      ym(checkoutFieldToValue.counterId, "hit", window.location.origin + "/bot/checkout/", {
+        referer: sanitizedReferer,
+        title: "WhoUpdate — переход к оплате",
+        callback: function () {
+          visitSent = true;
+          finishAnalytics();
+        }
+      });
+      ym(checkoutFieldToValue.counterId, "getClientID", function (clientID) {
+        if (!clientID || redirected) return;
+        fetch(checkoutFieldToValue.captureUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tracking_code: checkoutFieldToValue.trackingCode,
+            client_id: String(clientID)
+          }),
+          keepalive: true
+        }).then(function () {
+          clientCaptured = true;
+          finishAnalytics();
+        }, continueToPayment);
+      });
+    })();
+  </script>
+</body>
+</html>

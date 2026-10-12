@@ -1,0 +1,10 @@
+{% for media in event.dialog_media %}
+<div class="wu-dialog-attachment">
+    <button type="button" class="wu-dialog-media-button"
+        data-media-url="{% url 'admin:webhook_tg_usertg_dialog_media' bot_user.pk event.pk forloop.counter0 %}"
+        data-file-name="{{ media.file_name }}" aria-expanded="false"
+        aria-controls="wu-dialog-media-{{ event.pk }}-{{ forloop.counter0 }}">Показать</button>
+    <span class="wu-dialog-media-label">{{ media.label }}{% if event.dialog_media|length > 1 %} {{ forloop.counter }}{% endif %}</span>
+    <div class="wu-dialog-media-preview" id="wu-dialog-media-{{ event.pk }}-{{ forloop.counter0 }}" aria-live="polite" hidden></div>
+</div>
+{% endfor %}

@@ -13,13 +13,15 @@ import sys
 from pathlib import Path
 from django.utils import timezone
 from .models import UserTg, Message, FileType, TelegramOutbox
+from .telegram_file_ids import is_self_destructing_photo
+from .message_deletions import mark_messages_deleted
 from .mute import (
     handle_mute_callback,
     handle_mute_commands,
     is_username_muted,
     maybe_delete_muted_business_message,
 )
-from .history import handle_history_command
+from .history import handle_history_callback, handle_history_command
 import html
 from .telegram import (
     tg_send_message,
@@ -45,7 +47,7 @@ from .metrics import (
     observe_sqlite_lock,
 )
 from .resource_metrics import collect_resource_snapshot, resource_report_text
-from .user_metrics import collect_daily_user_metrics, daily_user_metrics_text
+from .user_metrics import collect_recent_user_metrics, recent_user_metrics_text
 from .config import (
     START_PHOTO_ID,
     START_TEXT,
@@ -76,12 +78,12 @@ from .subscriptions import (
     business_access_allowed,
     expired_access_text,
     grant_referral_reward,
-    referral_text,
     register_referral,
     start_trial_if_needed,
     subscription_keyboard,
 )
 from .bot_outgoing_log import log_bot_incoming
+from .video_note_age import schedule_video_note_age_check
 from .onboarding_analytics import (
     record_connection,
     record_demo_opened,
@@ -168,9 +170,18 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
 
     callback = data.get("callback_query")
     if callback:
+        if handle_history_callback(callback, update_id=int(data["update_id"])):
+            return
+        from .partner_bot import handle_money_callback
+        if handle_money_callback(callback):
+            return
         if _handle_demo_callback(callback):
             return
         handle_mute_callback(callback)
+        return
+
+    from .partner_bot import handle_money_message
+    if handle_money_message(data):
         return
 
     business_connection = data.get("business_connection")
@@ -187,6 +198,10 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
         or data.get("deleted_messages")
         or {}
     )
+    if is_deleted_message(data):
+        # Archive state is independent of access/subscription and notification
+        # delivery: owner messages and muted chats can also be deleted.
+        mark_messages_deleted(msg, update_id=data.get("update_id"))
     if msg.get("business_connection_id") and not business_access_allowed(msg):
         return
     # View-once / protected: reply без открытия → копия владельцу.
@@ -200,6 +215,9 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
         and maybe_delete_muted_business_message(msg)
     ):
         return
+
+    if data.get("business_message"):
+        schedule_video_note_age_check(msg)
 
     text = msg.get("text")
     if text is None and not is_deleted_message(data):
@@ -268,6 +286,17 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
                 idempotency_key=f"command:{update_id}:expired-access",
                 reply_markup=subscription_keyboard(bot_user),
             )
+    elif command == "/spin" and is_message_to_bot(data) and type(chat_id) is int and chat_id == from_user_id and chat_id > 0:
+        from .wheel_announcement import announcement_payload
+        bot_user, created = _init_user_bot(from_user_id, chat_id, username, first_name, notify_owner=False)
+        if created:
+            start_trial_if_needed(bot_user)
+        payload = announcement_payload()
+        send_message_reliably(
+            chat_id, payload["text"],
+            idempotency_key=f"command:{update_id}:spin",
+            reply_markup=payload["reply_markup"],
+        )
     elif command in ("/status", "/subscription", "/subscribe") and is_message_to_bot(data):
         bot_user = init_user_bot(from_user_id, chat_id, username, first_name)
         apply_rollout_policy(bot_user)
@@ -276,13 +305,6 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
             access_status_text(bot_user),
             idempotency_key=f"command:{update_id}:status",
             reply_markup=subscription_keyboard(bot_user) if not bot_user.access_unlimited else None,
-        )
-    elif command in ("/referral", "/ref") and is_message_to_bot(data):
-        bot_user = init_user_bot(from_user_id, chat_id, username, first_name)
-        send_message_reliably(
-            chat_id,
-            referral_text(bot_user),
-            idempotency_key=f"command:{update_id}:referral",
         )
     elif command == "/history" and is_message_to_bot(data):
         bot_user = init_user_bot(from_user_id, chat_id, username, first_name)
@@ -630,10 +652,10 @@ def _handle_stat_command(
         # Команда приватная: постороннему не подтверждаем даже её наличие.
         return True
 
-    metrics = collect_daily_user_metrics()
+    metrics_by_day = collect_recent_user_metrics(days=5)
     send_message_reliably(
         chat_id,
-        daily_user_metrics_text(metrics),
+        recent_user_metrics_text(metrics_by_day),
         idempotency_key=f"command:{update_id}:stat",
     )
     return True
@@ -698,8 +720,12 @@ def _extract_file_data(msg):
     caption = msg.get("caption", None)
 
     if "photo" in msg and msg["photo"]:
-        file_type = FileType.PHOTO
         file_id = msg["photo"][-1].get("file_id")
+        file_type = (
+            FileType.SELF_DESTRUCT_PHOTO
+            if is_self_destructing_photo(file_id)
+            else FileType.PHOTO
+        )
     elif "voice" in msg:
         file_type = FileType.AUDIO
         file_id = msg["voice"].get("file_id")
@@ -756,6 +782,18 @@ def _send_view_once_copy(chat_id, file_id: str, file_type: str, caption: str) ->
     View-once file_id нельзя отправить через sendPhoto/sendVideo напрямую
     (SelfDestructingPhoto/Video). Скачиваем байты и заливаем заново.
     """
+    if file_type == FileType.PHOTO and is_self_destructing_photo(file_id):
+        copy_id = (
+            Message.objects.filter(
+                file_id=file_id,
+                saved_photo_source_file_id=file_id,
+            )
+            .exclude(saved_photo_file_id="")
+            .values_list("saved_photo_file_id", flat=True)
+            .first()
+        )
+        if copy_id:
+            return send_photo(chat_id, copy_id, caption=caption)
     try:
         content, file_path = download_telegram_file_bytes(file_id, timeout=90)
     except Exception as exc:
@@ -775,6 +813,7 @@ def _send_view_once_copy(chat_id, file_id: str, file_type: str, caption: str) ->
             caption=caption,
             filename=filename,
             content_type=content_type,
+            source_file_id=file_id,
         )
     elif file_type == FileType.VIDEO:
         ok = send_video_bytes(
@@ -936,7 +975,9 @@ def _build_deleted_caption(deleted: dict, message_id: int, text: str) -> str:
 
 def _send_file_by_type(chat_id, file_id: str, file_type: str, caption: str) -> None:
     """Отправляет файл в чат в зависимости от file_type (PHOTO, AUDIO, VIDEO, DOCUMENT)."""
-    if file_type == FileType.PHOTO:
+    if file_type == FileType.SELF_DESTRUCT_PHOTO:
+        _send_view_once_copy(chat_id, file_id, FileType.PHOTO, caption)
+    elif file_type == FileType.PHOTO:
         send_photo(chat_id, file_id, caption=caption)
     elif file_type == FileType.AUDIO:
         send_audio(chat_id, file_id, caption=caption)
@@ -1177,11 +1218,9 @@ def _send_edit_notification(msg: dict, business_connection: BusinessConnection) 
         return
 
     notification = build_message_update(msg, business_connection)
-    # Сразу, как удаления: иначе outbox/cron даёт «сначала delete, потом edit».
-    if tg_send_message(recipient, notification):
-        return
-
-    enqueue_outbox(
+    # Persist before the immediate send; long notifications are delivered in
+    # parts and resume from the first undelivered part after a failure.
+    enqueue_and_deliver(
         chat_id=recipient,
         method=TelegramOutbox.Method.SEND_MESSAGE,
         payload={

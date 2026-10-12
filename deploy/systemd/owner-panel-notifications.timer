@@ -1,0 +1,11 @@
+[Unit]
+Description=Check owner events every 30 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=30s
+AccuracySec=3s
+Unit=owner-panel-notifications.service
+
+[Install]
+WantedBy=timers.target

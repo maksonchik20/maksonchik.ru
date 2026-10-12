@@ -1,0 +1,19 @@
+[Unit]
+Description=Owner PWA event poller and Web Push outbox
+Requires=who-update-postgresql.service
+After=network-online.target who-update-postgresql.service
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/maksonchik/app
+Environment=DJANGO_SETTINGS_MODULE=maksonchik.settings
+Environment=MPLCONFIGDIR=/srv/maksonchik/.cache/matplotlib
+EnvironmentFile=/srv/maksonchik/database.env
+ExecStart=/srv/maksonchik/venv/bin/python manage.py process_panel_notifications
+TimeoutStartSec=10min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+UMask=0077

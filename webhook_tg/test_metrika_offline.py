@@ -194,3 +194,23 @@ class MetrikaOfflineConversionTests(TestCase):
         self.assertFalse(rows.exclude(attempts=1).exists())
         self.assertTrue(all(row.next_attempt_at > self.now for row in rows))
         self.assertTrue(all("timeout" in row.last_error for row in rows))
+
+    @patch("webhook_tg.metrika_offline.METRIKA_SESSION.post")
+    def test_process_death_freezes_start_and_connected_identifiers(self, post):
+        sync_conversion_queue(counter_id=self.counter_id, now=self.now)
+        post.side_effect = SystemExit("killed after accepting CSV")
+        with self.assertRaises(SystemExit):
+            upload_pending_conversions(token="test", now=self.now)
+        original_payload = post.call_args.kwargs["files"]["file"][1]
+        self.funnel.yclid = "changed-after-first-attempt"
+        self.funnel.save(update_fields=["yclid"])
+        sync_conversion_queue(counter_id=self.counter_id, now=self.now)
+        response = Mock()
+        response.json.return_value = {"uploading": {"id": 889900, "status": "UPLOADED"}}
+        post.side_effect = None
+        post.return_value = response
+
+        self.assertEqual(upload_pending_conversions(token="test", now=self.now + timedelta(minutes=6)), 2)
+
+        self.assertEqual(post.call_args.kwargs["files"]["file"][1], original_payload)
+        self.assertFalse(WhoUpdateMetrikaConversion.objects.exclude(attempts=2).exists())

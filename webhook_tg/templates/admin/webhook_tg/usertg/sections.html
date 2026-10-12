@@ -1,0 +1,47 @@
+<div class="wu-sections">
+<div class="wu-tabs" role="tablist" aria-label="Разделы пользователя">
+<button type="button" role="tab" id="wu-tab-chat" aria-controls="wu-chat" aria-selected="{% if active_user_tab == 'chat' %}true{% else %}false{% endif %}">Чат</button>
+<button type="button" role="tab" id="wu-tab-referrals" aria-controls="wu-referrals" aria-selected="{% if active_user_tab == 'referrals' %}true{% else %}false{% endif %}">Рефералы · {{ referral_summary.referral_count }}</button>
+</div>
+<section id="wu-chat" class="wu-panel" role="tabpanel" aria-labelledby="wu-tab-chat" {% if active_user_tab != 'chat' %}hidden{% endif %}>
+{% include "admin/webhook_tg/usertg/chat.html" %}
+</section>
+<section id="wu-referrals" class="wu-panel" role="tabpanel" aria-labelledby="wu-tab-referrals" {% if active_user_tab != 'referrals' %}hidden{% endif %}>
+<p>Ставка с новых покупок: <strong>{{ partner_percent|floatformat:2 }}%</strong>. <a href="{% url 'admin:webhook_tg_whoupdatepartnersettings_change' 1 %}">Настройки программы</a></p>
+<p class="wu-ref-link">Реферальная ссылка: <a href="{{ referral_url }}" target="_blank" rel="noopener">{{ referral_url }}</a></p>
+<div class="wu-stats">
+<div class="wu-stat"><span>Покупки рефералов</span><strong>{{ referral_summary.revenue|floatformat:2 }} ₽</strong></div>
+<div class="wu-stat"><span>Начислено партнёру</span><strong>{{ referral_summary.earned|floatformat:2 }} ₽</strong></div>
+<div class="wu-stat"><span>Доступно к выводу</span><strong>{{ referral_summary.payable|floatformat:2 }} ₽</strong></div>
+<div class="wu-stat"><span>В заявках</span><strong>{{ referral_summary.reserved|floatformat:2 }} ₽</strong></div>
+<div class="wu-stat"><span>Выплачено</span><strong>{{ referral_summary.paid|floatformat:2 }} ₽</strong></div>
+</div>
+<p>Суммы покупок включают всю историю. Денежные начисления — с начала программы. Заявка создаётся пользователем через /referral в боте.</p>
+<div class="wu-table-wrap"><table class="wu-table"><thead><tr><th>Реферал</th><th>Telegram ID</th><th>Покупок</th><th>Купил на сумму</th><th>Начислено партнёру</th></tr></thead><tbody>
+{% for referral in referral_page %}
+<tr><td><a href="{% url 'admin:webhook_tg_usertg_change' referral.pk %}">{% if referral.username %}@{{ referral.username }}{% else %}{{ referral.first_name|default:"Без имени" }}{% endif %}</a></td><td>{{ referral.user_id }}</td><td>{{ referral.purchase_count }}</td>
+<td class="wu-money"><a href="{% url 'admin:webhook_tg_whoupdatepaymentorder_changelist' %}?user__id__exact={{ referral.pk }}&status__exact=paid&is_test__exact=0">{{ referral.purchase_total|floatformat:2 }} ₽</a></td>
+<td class="wu-money"><a href="{% url 'admin:webhook_tg_whoupdatepartnercommission_changelist' %}?partner__id__exact={{ bot_user.pk }}&buyer__id__exact={{ referral.pk }}">{{ referral.commission_total|floatformat:2 }} ₽</a></td></tr>
+{% empty %}<tr><td colspan="5">Приглашённых пользователей пока нет.</td></tr>{% endfor %}
+</tbody></table></div>
+{% if referral_page.has_other_pages %}<p class="wu-pagination">{% if referral_page.has_previous %}<a href="?tab=referrals&ref_page={{ referral_page.previous_page_number }}">← Назад</a>{% endif %}Страница {{ referral_page.number }} из {{ referral_page.paginator.num_pages }}{% if referral_page.has_next %}<a href="?tab=referrals&ref_page={{ referral_page.next_page_number }}">Далее →</a>{% endif %}</p>{% endif %}
+<p><a href="{% url 'admin:webhook_tg_whoupdatepartnercommission_changelist' %}?partner__id__exact={{ bot_user.pk }}">Все начисления</a> · <a href="{% url 'admin:webhook_tg_whoupdatepartnerwithdrawal_changelist' %}?partner__id__exact={{ bot_user.pk }}">Все заявки на вывод</a></p>
+{% if withdrawals %}<h2>Последние заявки на вывод</h2><div class="wu-table-wrap"><table class="wu-table"><thead><tr><th>Заявка</th><th>Сумма</th><th>Статус</th><th>Создана</th><th>Примечание</th></tr></thead><tbody>{% for row in withdrawals %}<tr><td><a href="{% url 'admin:webhook_tg_whoupdatepartnerwithdrawal_change' row.pk %}">№{{ row.pk }}</a></td><td>{{ row.amount|floatformat:2 }} ₽</td><td>{{ row.get_status_display }}</td><td>{{ row.created_at|date:"d.m.Y H:i" }}</td><td>{{ row.note|default:"—" }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+</div>
+<script>
+(() => {
+ const tabs = Array.from(document.querySelectorAll('.wu-tabs [role="tab"]'));
+ const select = (tab) => {
+  tabs.forEach(item => { const active = item === tab; item.setAttribute('aria-selected', String(active)); item.tabIndex = active ? 0 : -1; document.getElementById(item.getAttribute('aria-controls')).hidden = !active; });
+  const url = new URL(window.location.href); url.searchParams.set('tab', tab.id === 'wu-tab-chat' ? 'chat' : 'referrals'); window.history.replaceState(null, '', url);
+  const dialog = document.getElementById('wu-dialog-list'); if (tab.id === 'wu-tab-chat' && dialog) dialog.scrollTop = dialog.scrollHeight;
+ };
+ tabs.forEach((tab, index) => {
+  tab.tabIndex = tab.getAttribute('aria-selected') === 'true' ? 0 : -1;
+  tab.addEventListener('click', () => select(tab));
+  tab.addEventListener('keydown', event => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) { event.preventDefault(); const next = tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]; select(next); next.focus(); } });
+ });
+ const dialog = document.getElementById('wu-dialog-list'); if (dialog) dialog.scrollTop = dialog.scrollHeight;
+})();
+</script>

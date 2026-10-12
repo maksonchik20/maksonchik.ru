@@ -7,7 +7,13 @@ from django.utils import timezone
 
 from .config import OWNER_CHAT_ID
 from .models import UserTg, WhoUpdateOnboardingFunnel
-from .user_metrics import DailyUserMetrics, collect_daily_user_metrics, daily_user_metrics_text
+from .user_metrics import (
+    DailyUserMetrics,
+    collect_daily_user_metrics,
+    collect_recent_user_metrics,
+    daily_user_metrics_text,
+    recent_user_metrics_text,
+)
 from .views import _handle_stat_command
 
 
@@ -86,6 +92,43 @@ class DailyUserMetricsTests(TestCase):
         self.assertIn("Отключились: <b>2</b>", text)
         self.assertIn("Доступ закончился: <b>3</b>", text)
 
+    @patch("webhook_tg.user_metrics.collect_daily_user_metrics")
+    def test_recent_metrics_are_collected_from_today_backwards(self, collect_mock):
+        collect_mock.side_effect = lambda *, day, at: day
+
+        result = collect_recent_user_metrics(days=5, at=self.now)
+
+        self.assertEqual(
+            result,
+            [self.day - timedelta(days=offset) for offset in range(5)],
+        )
+
+    def test_recent_report_contains_only_requested_metrics_in_descending_order(self):
+        metrics_by_day = [
+            DailyUserMetrics(
+                day=self.day - timedelta(days=offset),
+                unique_landing_visitors=10,
+                landing_views=15,
+                started_users=7 - offset,
+                connected_users=4 - offset,
+                disconnected_users=2,
+                expired_users=3,
+            )
+            for offset in range(2)
+        ]
+
+        text = recent_user_metrics_text(metrics_by_day)
+
+        self.assertLess(
+            text.index(f"{self.day:%d.%m.%Y}"),
+            text.index(f"{self.day - timedelta(days=1):%d.%m.%Y}"),
+        )
+        self.assertIn("/start: <b>7</b>", text)
+        self.assertIn("Подключились: <b>4</b>", text)
+        self.assertIn("Отключились: <b>2</b>", text)
+        self.assertNotIn("Открытия лендинга", text)
+        self.assertNotIn("Доступ закончился", text)
+
     @patch("webhook_tg.management.commands.send_daily_user_metrics.enqueue_outbox")
     @patch("webhook_tg.management.commands.send_daily_user_metrics.collect_daily_user_metrics")
     def test_command_queues_one_idempotent_report(self, collect_mock, enqueue_mock):
@@ -131,8 +174,8 @@ class DailyUserMetricsTests(TestCase):
 
 class StatCommandTests(TestCase):
     @patch("webhook_tg.views.send_message_reliably")
-    @patch("webhook_tg.views.collect_daily_user_metrics")
-    def test_owner_receives_current_daily_report(self, collect_mock, send_mock):
+    @patch("webhook_tg.views.collect_recent_user_metrics")
+    def test_owner_receives_five_day_report(self, collect_mock, send_mock):
         metrics = DailyUserMetrics(
             day=timezone.localdate(),
             unique_landing_visitors=10,
@@ -142,7 +185,7 @@ class StatCommandTests(TestCase):
             disconnected_users=2,
             expired_users=3,
         )
-        collect_mock.return_value = metrics
+        collect_mock.return_value = [metrics]
 
         handled = _handle_stat_command(
             OWNER_CHAT_ID,
@@ -152,14 +195,15 @@ class StatCommandTests(TestCase):
         )
 
         self.assertTrue(handled)
+        collect_mock.assert_called_once_with(days=5)
         send_mock.assert_called_once_with(
             OWNER_CHAT_ID,
-            daily_user_metrics_text(metrics),
+            recent_user_metrics_text([metrics]),
             idempotency_key="command:123:stat",
         )
 
     @patch("webhook_tg.views.send_message_reliably")
-    @patch("webhook_tg.views.collect_daily_user_metrics")
+    @patch("webhook_tg.views.collect_recent_user_metrics")
     def test_other_user_gets_no_statistics(self, collect_mock, send_mock):
         handled = _handle_stat_command(123456, 123456, "/stat", update_id=124)
 

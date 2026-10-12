@@ -1,6 +1,6 @@
-from html import escape
 from pathlib import Path
 
+from django.db import transaction
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
@@ -22,8 +22,7 @@ from .landing_pages import (
 )
 from .site_info import FAQ, GUARANTEES, PROJECTS, SERVICES
 from .models import Lead
-from webhook_tg.config import OWNER_CHAT_ID
-from webhook_tg.telegram import tg_send_message
+from .notifications import enqueue_lead_notification
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -87,34 +86,20 @@ def submit_lead(request: HttpRequest):
     if consent != "on":
         return JsonResponse({"ok": False, "error": "Нужно согласие на обработку данных."}, status=400)
 
-    lead = Lead.objects.create(
-        name=name,
-        contact=contact,
-        message=message,
-        page_url=request.POST.get("page_url", "")[:1000],
-        page_title=request.POST.get("page_title", "")[:300],
-        utm_source=request.POST.get("utm_source", "")[:255],
-        utm_medium=request.POST.get("utm_medium", "")[:255],
-        utm_campaign=request.POST.get("utm_campaign", "")[:255],
-        utm_content=request.POST.get("utm_content", "")[:255],
-        utm_term=request.POST.get("utm_term", "")[:255],
-    )
-
-    telegram_text = (
-        "<b>Новая заявка с maksonchik.ru</b>\n\n"
-        f"<b>Имя:</b> {escape(name or 'Не указано')}\n"
-        f"<b>Контакт:</b> {escape(contact)}\n"
-        f"<b>Задача:</b> {escape(message or 'Не указана')}\n"
-        f"<b>Страница:</b> {escape(lead.page_url or 'Не определена')}\n"
-        f"<b>UTM campaign:</b> {escape(lead.utm_campaign or '—')}"
-    )
-    try:
-        lead.notification_sent = tg_send_message(OWNER_CHAT_ID, telegram_text, timeout=8)
-        if not lead.notification_sent:
-            lead.notification_error = "Telegram API не подтвердил отправку"
-    except Exception as exc:
-        lead.notification_error = str(exc)[:1000]
-    lead.save(update_fields=("notification_sent", "notification_error"))
+    with transaction.atomic():
+        lead = Lead.objects.create(
+            name=name,
+            contact=contact,
+            message=message,
+            page_url=request.POST.get("page_url", "")[:1000],
+            page_title=request.POST.get("page_title", "")[:300],
+            utm_source=request.POST.get("utm_source", "")[:255],
+            utm_medium=request.POST.get("utm_medium", "")[:255],
+            utm_campaign=request.POST.get("utm_campaign", "")[:255],
+            utm_content=request.POST.get("utm_content", "")[:255],
+            utm_term=request.POST.get("utm_term", "")[:255],
+        )
+        enqueue_lead_notification(lead)
 
     return JsonResponse({"ok": True, "lead_id": lead.pk})
 

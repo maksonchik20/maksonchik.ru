@@ -20,3 +20,15 @@ class BotCommandsTests(SimpleTestCase):
         )
         self.assertNotIn("stat", {item["command"] for item in COMMANDS})
         self.assertIn("stat", {item["command"] for item in OWNER_COMMANDS})
+        self.assertIn("spin", {item["command"] for item in COMMANDS})
+
+    def test_referral_is_the_only_partner_command_and_describes_both_rewards(self):
+        for commands in (COMMANDS, OWNER_COMMANDS):
+            with self.subTest(owner_commands=commands is OWNER_COMMANDS):
+                names = [item["command"] for item in commands]
+                self.assertNotIn("money", names)
+                self.assertEqual(names.count("referral"), 1)
+                referral = next(item for item in commands if item["command"] == "referral")
+                self.assertIn("7 дней", referral["description"])
+                self.assertIn("30%", referral["description"])
+                self.assertIn("покуп", referral["description"])

@@ -48,7 +48,7 @@ def _raise_for_response(response):
     raise YooKassaError(f"ЮKassa HTTP {response.status_code}: {response.text[:500]}")
 
 
-def create_payment(*, amount, description, return_url, metadata):
+def create_payment(*, amount, description, return_url, metadata, idempotence_key=None):
     response = requests.post(
         API_URL,
         json={
@@ -58,7 +58,7 @@ def create_payment(*, amount, description, return_url, metadata):
             "description": description[:128],
             "metadata": metadata,
         },
-        headers=_headers(str(uuid.uuid4())),
+        headers=_headers(idempotence_key or str(uuid.uuid4())),
         timeout=30,
     )
     _raise_for_response(response)

@@ -7,16 +7,16 @@ from django.test import RequestFactory, TestCase
 from .models import Lead
 
 
+@patch("main.notifications.OWNER_CHAT_ID", 123456)
 class LeadFormTest(TestCase):
-    @patch("main.views.tg_send_message", return_value=True)
-    def test_contact_only_submission_is_accepted(self, send_message):
+    def test_contact_only_submission_is_accepted(self):
         response = self.client.post("/request/", {"contact": "@anna", "consent": "on"})
         self.assertEqual(response.status_code, 200)
         lead = Lead.objects.get()
         self.assertEqual(response.json()["lead_id"], lead.pk)
         self.assertEqual(lead.name, "")
         self.assertEqual(lead.message, "")
-        self.assertIn("Не указано", send_message.call_args.args[1])
+        self.assertIn("Не указано", lead.notification_outbox.payload["text"])
 
     def test_honeypot_does_not_create_a_conversion(self):
         response = self.client.post("/request/", {"company": "spam"})
@@ -53,8 +53,8 @@ class LeadFormTest(TestCase):
         self.assertContains(response, 'id="lead-form"', count=1)
         self.assertContains(response, 'id="contact"', count=1)
 
-    @patch("main.views.tg_send_message", return_value=True)
-    def test_submission_creates_lead_and_notifies_owner(self, send_message):
+    @patch("webhook_tg.outbox.dispatch_telegram_request")
+    def test_submission_creates_lead_and_queues_notification(self, send_message):
         response = self.client.post(
             "/request/",
             {
@@ -73,8 +73,10 @@ class LeadFormTest(TestCase):
         lead = Lead.objects.get()
         self.assertEqual(lead.contact, "@anna")
         self.assertEqual(lead.utm_campaign, "test")
-        self.assertTrue(lead.notification_sent)
-        send_message.assert_called_once()
+        self.assertFalse(lead.notification_sent)
+        self.assertEqual(lead.notification_outbox.status, "pending")
+        self.assertEqual(lead.notification_outbox.chat_id, 123456)
+        send_message.assert_not_called()
 
     def test_submission_requires_contact_and_consent(self):
         response = self.client.post("/request/", {"name": "Анна"})
@@ -82,7 +84,7 @@ class LeadFormTest(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Lead.objects.count(), 0)
 
-    @patch("main.views.tg_send_message", return_value=False)
+    @patch("webhook_tg.outbox.dispatch_telegram_request", side_effect=TimeoutError)
     def test_lead_is_saved_when_telegram_is_unavailable(self, send_message):
         response = self.client.post(
             "/request/",
@@ -92,7 +94,9 @@ class LeadFormTest(TestCase):
         self.assertEqual(response.status_code, 200)
         lead = Lead.objects.get()
         self.assertFalse(lead.notification_sent)
-        self.assertTrue(lead.notification_error)
+        self.assertEqual(lead.notification_error, "")
+        self.assertIsNotNone(lead.notification_outbox_id)
+        send_message.assert_not_called()
 
     def test_global_form_is_rendered_on_key_pages(self):
         for path in ("/", "/blog/", "/privacy/"):
@@ -126,7 +130,7 @@ class LeadFormTest(TestCase):
     def test_home_offers_custom_automation(self):
         response = self.client.get("/")
 
-        self.assertContains(response, "Любая автоматизация")
+        self.assertContains(response, "Автоматизация вашей работы")
         self.assertContains(response, "интеграции с сервисами")
 
     def test_coffee_shop_landing_contains_preorder_offer_and_lead_form(self):

@@ -1,10 +1,12 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from webhook_tg import payment_views, seo_views, views
+from webhook_tg import payment_views, seo_views, views, wheel_views
 
 
 urlpatterns = [
+    path("bot/wheel/", wheel_views.wheel_app, name="who_update_wheel"),
+    path("bot/wheel/api/<str:action>/", wheel_views.wheel_api, name="who_update_wheel_api"),
     path("", seo_views.who_update_landing, name="who_update_home"),
     path("privacy/", seo_views.who_update_privacy, name="who_update_privacy"),
     path("terms/", seo_views.who_update_terms, name="who_update_terms"),

@@ -105,6 +105,14 @@ def _current_minute():
 
 def observe_metric(metric_name: str, value: float, labels: dict | None = None) -> None:
     """Записать наблюдение; ошибки мониторинга не должны ломать работу бота."""
+    from .metric_buffer import buffer_observation
+
+    try:
+        if buffer_observation(metric_name, value, labels):
+            return
+    except Exception:
+        logger.warning("Could not buffer operational metric %s", metric_name, exc_info=True)
+        return
     normalized_labels = {
         str(key): str(label_value)
         for key, label_value in sorted((labels or {}).items())
@@ -172,6 +180,29 @@ def set_gauge(metric_name: str, value: float, labels: dict | None = None) -> Non
         logger.warning("Could not persist operational gauge %s", metric_name, exc_info=True)
 
 
+def set_gauges(observations) -> None:
+    """Один upsert для снимка вместо update_or_create на каждый gauge."""
+    minute = _current_minute()
+    keyToBucket = {}
+    for metric_name, value, labelToValue in observations:
+        labelToValue = {str(key): str(item) for key, item in sorted((labelToValue or {}).items())}
+        labels_json = json.dumps(labelToValue, sort_keys=True, separators=(",", ":"))
+        labels_hash = hashlib.sha256(labels_json.encode("utf-8")).hexdigest()
+        keyToBucket[(metric_name, labels_hash)] = OperationalMetricBucket(
+            metric_name=metric_name, minute=minute, labels_hash=labels_hash,
+            labels=labelToValue, count=1, total=float(value), maximum=float(value),
+        )
+    try:
+        OperationalMetricBucket.objects.bulk_create(
+            list(keyToBucket.values()), batch_size=100,
+            update_conflicts=True,
+            unique_fields=["metric_name", "minute", "labels_hash"],
+            update_fields=["labels", "count", "total", "maximum", "exported_at"],
+        )
+    except (OperationalError, IntegrityError):
+        logger.warning("Could not persist operational gauge snapshot", exc_info=True)
+
+
 def record_heartbeat(job: str, *, min_interval_seconds: float = 30) -> None:
     now = time.monotonic()
     if now - _last_heartbeat.get(job, 0) < min_interval_seconds:
@@ -186,4 +217,5 @@ def observe_sqlite_lock(exc: Exception, component: str) -> None:
 
 
 def closed_bucket_cutoff():
-    return _current_minute() - timedelta(seconds=1)
+    # Leave a full closed minute for the five-second per-process telemetry buffer.
+    return _current_minute() - timedelta(minutes=1, seconds=1)

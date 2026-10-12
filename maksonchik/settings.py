@@ -73,6 +73,7 @@ INSTALLED_APPS = [
 
     'webhook_tg.apps.WebhookTgConfig',
     'main.apps.MainConfig',
+    'owner_panel.apps.OwnerPanelConfig',
 ]
 
 MIDDLEWARE = [

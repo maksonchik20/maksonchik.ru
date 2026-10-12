@@ -1,0 +1,13 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p>{% if is_payout %}Сначала переведите деньги партнёрам вручную. Подтверждение отметит заявки выплаченными.{% else %}Укажите причину. При отклонении заявки зарезервированные деньги снова станут доступны пользователю.{% endif %}</p>
+<table><thead><tr><th>№</th><th>Партнёр</th><th>Сумма</th></tr></thead><tbody>{% for row in rows %}<tr><td>{{ row.pk }}</td><td>{{ row.partner }}</td><td>{{ row.amount|floatformat:2 }} ₽</td></tr>{% endfor %}</tbody></table>
+<p><b>Всего: {{ total|floatformat:2 }} ₽</b></p>
+<form method="post">{% csrf_token %}
+{% for id in selected %}<input type="hidden" name="{{ action_checkbox_name }}" value="{{ id }}">{% endfor %}
+<input type="hidden" name="action" value="{{ action_name }}"><input type="hidden" name="confirm_partner_action" value="1">
+<p><label for="partner-note">{% if is_payout %}Номер перевода / примечание{% else %}Причина{% endif %}:</label></p>
+<p><textarea id="partner-note" name="note" required maxlength="500" rows="3" cols="60">{{ note }}</textarea></p>
+<input type="submit" value="Подтвердить"> <a href="{{ request.path }}">Отменить</a>
+</form>
+{% endblock %}

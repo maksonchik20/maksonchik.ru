@@ -3,6 +3,8 @@ db.sqlite3
 __pycache__
 static
 !main/static/
+!webhook_tg/static/
+!owner_panel/static/
 gunicorn.ctl
 env.py
 sender.py

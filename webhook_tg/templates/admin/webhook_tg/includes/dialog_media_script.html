@@ -1,0 +1,98 @@
+<style>
+    .wu-dialog-attachment { margin-top: 10px; }
+    .wu-dialog-media-button { background: #176b96; color: #fff; border: 0; padding: 7px 13px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }
+    .wu-dialog-media-button:hover { background: #125879; }
+    .wu-dialog-media-button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+    .wu-dialog-media-button:disabled { opacity: .6; cursor: wait; }
+    .wu-dialog-media-label { margin-left: 7px; font-size: 12px; opacity: .75; }
+    .wu-dialog-media-preview { margin-top: 10px; overflow-wrap: anywhere; }
+    .wu-dialog-media-preview[hidden] { display: none; }
+    .wu-dialog-media-preview img, .wu-dialog-media-preview video { display: block; max-width: 100%; max-height: 480px; border-radius: 8px; object-fit: contain; }
+    .wu-dialog-media-preview audio { display: block; width: 300px; max-width: 100%; }
+    .wu-dialog-media-preview a { display: inline-block; margin-top: 7px; font-size: 13px; }
+    .wu-dialog-media-status { font-size: 13px; }
+</style>
+<script>
+(function () {
+    if (window.__wuDialogMediaBound) return;
+    window.__wuDialogMediaBound = true;
+    var objectUrls = [];
+
+    document.addEventListener('click', async function (event) {
+        var button = event.target.closest ? event.target.closest('.wu-dialog-media-button') : null;
+        if (!button || button.disabled) return;
+        event.preventDefault();
+        var preview = button.parentNode.querySelector('.wu-dialog-media-preview');
+        if (!preview) return;
+        if (preview.dataset.loaded === '1') {
+            preview.hidden = !preview.hidden;
+            button.textContent = preview.hidden ? 'Показать' : 'Скрыть';
+            button.setAttribute('aria-expanded', String(!preview.hidden));
+            return;
+        }
+        var controller = new AbortController();
+        var timer = setTimeout(function () { controller.abort(); }, 65000);
+        button.disabled = true;
+        button.textContent = 'Загрузка…';
+        button.setAttribute('aria-expanded', 'true');
+        preview.hidden = false;
+        var status = document.createElement('div');
+        status.className = 'wu-dialog-media-status';
+        status.textContent = 'Загрузка из Telegram…';
+        preview.replaceChildren(status);
+        try {
+            var response = await fetch(button.dataset.mediaUrl, { credentials: 'same-origin', signal: controller.signal });
+            if (response.redirected) throw new Error('Сессия завершилась. Обновите страницу и войдите в админку.');
+            if (!response.ok) {
+                var errorType = response.headers.get('Content-Type') || '';
+                var message = errorType.indexOf('text/plain') === 0 ? await response.text() : '';
+                throw new Error(message || 'Не удалось загрузить файл. Попробуйте ещё раз.');
+            }
+            var blob = await response.blob();
+            if (!blob.size) throw new Error('Telegram вернул пустой файл. Попробуйте ещё раз.');
+            var url = URL.createObjectURL(blob);
+            objectUrls.push(url);
+            var type = (blob.type || '').toLowerCase();
+            var element;
+            if (/^image\/(jpeg|png|gif|webp)$/.test(type)) {
+                element = document.createElement('img');
+                element.alt = 'Фото из сообщения';
+            } else if (type.indexOf('video/') === 0) {
+                element = document.createElement('video');
+                element.controls = true;
+                element.playsInline = true;
+                element.preload = 'metadata';
+            } else if (type.indexOf('audio/') === 0) {
+                element = document.createElement('audio');
+                element.controls = true;
+                element.preload = 'metadata';
+            }
+            preview.replaceChildren();
+            if (element) {
+                element.src = url;
+                preview.appendChild(element);
+            }
+            var download = document.createElement('a');
+            download.href = url;
+            var extensions = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'video/mp4': '.mp4', 'video/webm': '.webm', 'audio/ogg': '.ogg', 'audio/mpeg': '.mp3', 'application/pdf': '.pdf' };
+            download.download = button.dataset.fileName || ('telegram-file' + (extensions[type] || ''));
+            download.textContent = 'Скачать файл';
+            preview.appendChild(download);
+            preview.dataset.loaded = '1';
+            button.textContent = 'Скрыть';
+        } catch (error) {
+            status.textContent = error.name === 'AbortError'
+                ? 'Telegram не ответил вовремя. Нажмите «Повторить».'
+                : error.message || 'Ошибка загрузки';
+            preview.replaceChildren(status);
+            button.textContent = 'Повторить';
+        } finally {
+            clearTimeout(timer);
+            button.disabled = false;
+        }
+    });
+    window.addEventListener('pagehide', function (event) {
+        if (!event.persisted) objectUrls.forEach(function (url) { URL.revokeObjectURL(url); });
+    });
+})();
+</script>

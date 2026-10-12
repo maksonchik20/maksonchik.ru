@@ -1,0 +1,29 @@
+{% extends "admin/change_list.html" %}
+{% load i18n static %}
+
+{% block search %}
+    {% if cl.search_fields and not wu_chat_mode %}
+        <div id="toolbar"><form id="changelist-search" method="get">
+            <div>
+                <label for="searchbar"><img src="{% static 'admin/img/search.svg' %}" alt="{% translate 'Search' %}"></label>
+                <input type="text" size="40" name="q" value="{{ cl.query }}" id="searchbar">
+                <input type="submit" value="{% translate 'Search' %}">
+                {% for name, value in cl.search_hidden_fields %}
+                    <input type="hidden" name="{{ name }}" value="{{ value }}">
+                {% endfor %}
+            </div>
+            {% if cl.search_help_text %}<div class="help">{{ cl.search_help_text }}</div>{% endif %}
+        </form></div>
+    {% endif %}
+{% endblock %}
+
+{% block pagination %}
+    {% if not wu_chat_mode %}
+        <p class="paginator">
+            {% if not cl.cursor_is_first %}<a href="{{ cl.cursor_first_url }}">К новым записям</a>{% endif %}
+            {% if cl.cursor_newer_url %}<a href="{{ cl.cursor_newer_url }}">← Новее</a>{% endif %}
+            {% if cl.cursor_older_url %}<a href="{{ cl.cursor_older_url }}">Старее →</a>{% endif %}
+            <span>На странице: {{ cl.result_list|length }}. Общее число записей не вычисляется.</span>
+        </p>
+    {% endif %}
+{% endblock %}

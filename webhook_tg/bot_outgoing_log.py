@@ -36,6 +36,71 @@ def _telegram_message_id(result) -> int | None:
     return None
 
 
+def _telegram_media(result) -> list[dict]:
+    """Keep reusable attachment IDs from sent messages, not the full API reply."""
+    telegram_messages = result if isinstance(result, list) else [result]
+    media = []
+
+    def positive_number(value):
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else 0
+
+    for message in telegram_messages:
+        if not isinstance(message, dict):
+            continue
+        attachment = None
+        file_type = None
+        photos = message.get("photo")
+        if isinstance(photos, list):
+            candidates = [
+                (index, photo)
+                for index, photo in enumerate(photos)
+                if isinstance(photo, dict)
+                and isinstance(photo.get("file_id"), str)
+                and photo["file_id"].strip()
+            ]
+            if candidates:
+                # Telegram normally orders sizes from small to large. Use the
+                # dimensions when present; the last valid size is the fallback.
+                _, attachment = max(
+                    candidates,
+                    key=lambda item: (
+                        positive_number(item[1].get("width"))
+                        * positive_number(item[1].get("height")),
+                        positive_number(item[1].get("file_size")),
+                        item[0],
+                    ),
+                )
+                file_type = "PHOTO"
+        if attachment is None:
+            # Animation also includes a document field in Bot API responses.
+            # Prefer the specific media type so it does not become two files.
+            for field, candidate_type in (
+                ("animation", "ANIMATION"),
+                ("video", "VIDEO"),
+                ("video_note", "VIDEO"),
+                ("audio", "AUDIO"),
+                ("voice", "AUDIO"),
+                ("sticker", "STICKER"),
+                ("document", "DOCUMENT"),
+            ):
+                candidate = message.get(field)
+                if (
+                    isinstance(candidate, dict)
+                    and isinstance(candidate.get("file_id"), str)
+                    and candidate["file_id"].strip()
+                ):
+                    attachment = candidate
+                    file_type = candidate_type
+                    break
+        if attachment is None:
+            continue
+        item = {"file_id": attachment["file_id"].strip(), "file_type": file_type}
+        if isinstance(attachment.get("file_name"), str) and attachment["file_name"]:
+            item["file_name"] = attachment["file_name"]
+        media.append(item)
+    return media
+
+
 def log_bot_outgoing(*, chat_id, method: str, payload: dict | None = None, result=None) -> None:
     if not chat_id:
         return
@@ -44,6 +109,9 @@ def log_bot_outgoing(*, chat_id, method: str, payload: dict | None = None, resul
         # В журнал диалога попадают только личные чаты известных пользователей бота.
         if UserTg.objects.filter(chat_id=chat_id).exists():
             safe_payload = dict(payload or {})
+            telegram_media = _telegram_media(result)
+            if telegram_media:
+                safe_payload.setdefault("telegram_media", telegram_media)
             BotChatEvent.objects.create(
                 chat_id=chat_id,
                 direction=BotChatEvent.Direction.BOT,

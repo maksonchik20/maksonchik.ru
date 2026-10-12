@@ -1,4 +1,4 @@
-{% extends "main/base.html" %}
+{% extends "main/studio_base.html" %}
 
 {% block page_title %}{{ page.title }}{% endblock %}
 {% block meta_description %}{{ page.description }}{% endblock %}
@@ -443,12 +443,12 @@
           {% endfor %}
         </ul>
         <div class="hero-cta">
-          <a class="btn btn-primary btn-arrow" href="{{ site.telegram }}" target="_blank" rel="noopener">Написать в Telegram</a>
-          <a class="btn btn-ghost btn-arrow" href="#features">Что можно сделать</a>
+          <a class="btn btn-primary btn-arrow" href="#request" data-lead-open>Узнать стоимость и сроки</a>
+          <a class="btn btn-ghost btn-arrow" href="#features">Посмотреть возможности</a>
         </div>
       </div>
-      <aside class="hero-card holo-card tilt-card" aria-label="Сроки">
-        <h2>Сроки</h2>
+      <aside class="hero-card holo-card tilt-card" aria-label="Ориентиры по срокам">
+        <h2>Ориентиры по срокам</h2>
         <ul class="stat-list">
           {% for item in timelines %}
           <li><span>{{ item.title }}</span><strong>{{ item.time }}</strong></li>
@@ -546,7 +546,7 @@
   <div class="section-head" data-reveal>
     <h2 class="section-title gradient-text">Стоимость</h2>
   </div>
-  <p class="section-sub" data-reveal data-reveal-delay="1">Ориентиры по бюджету — точная смета после описания задачи в Telegram.</p>
+  <p class="section-sub" data-reveal data-reveal-delay="1">Начнём с функций, которые нужны вашему бизнесу сейчас. Точный состав работ, стоимость и сроки согласуем после обсуждения задачи.</p>
   <div class="pricing-grid pricing-grid--{{ pricing_tiers|length }}">
     {% for tier in pricing_tiers %}
     <article class="price-card holo-card tilt-card" data-reveal data-reveal-delay="{{ forloop.counter }}">
@@ -556,6 +556,7 @@
     </article>
     {% endfor %}
   </div>
+  <p class="pricing-note">Домен, хостинг и платные внешние сервисы оплачиваются отдельно. Обсудим эти расходы и условия поддержки до начала разработки.</p>
 </section>
 
 <section id="timelines" class="section-block wrap">
@@ -606,55 +607,11 @@
 <section id="contact" class="section-block wrap">
   <div class="contact-arena" data-reveal>
     <div class="contact-arena__inner">
-      <h2 class="gradient-text">Обсудим проект?</h2>
+      <h2 class="gradient-text">Как это будет работать у вас?</h2>
       <p>{{ page.cta_text }}</p>
       <a class="btn btn-primary btn-arrow" href="{{ site.telegram }}" target="_blank" rel="noopener">{{ site.telegram_handle }}</a>
     </div>
   </div>
 </section>
 </div>
-{% endblock %}
-
-{% block extra_scripts %}
-<script>
-(function () {
-  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var finePointer = window.matchMedia("(pointer: fine)").matches;
-  if (!reduced) {
-    document.querySelectorAll("[data-reveal]").forEach(function (el) {
-      var delay = el.getAttribute("data-reveal-delay");
-      if (delay) el.style.transitionDelay = (parseInt(delay, 10) * 0.1) + "s";
-    });
-    var observer = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add("is-visible");
-          observer.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.08, rootMargin: "0px 0px -60px 0px" });
-    document.querySelectorAll("[data-reveal]").forEach(function (el) { observer.observe(el); });
-  } else {
-    document.querySelectorAll("[data-reveal]").forEach(function (el) { el.classList.add("is-visible"); });
-  }
-  document.querySelectorAll(".holo-card").forEach(function (card) {
-    card.addEventListener("mousemove", function (e) {
-      var rect = card.getBoundingClientRect();
-      card.style.setProperty("--card-x", ((e.clientX - rect.left) / rect.width) * 100 + "%");
-      card.style.setProperty("--card-y", ((e.clientY - rect.top) / rect.height) * 100 + "%");
-    });
-  });
-  if (finePointer && !reduced) {
-    document.querySelectorAll(".tilt-card").forEach(function (card) {
-      card.addEventListener("mousemove", function (e) {
-        var rect = card.getBoundingClientRect();
-        var x = (e.clientX - rect.left) / rect.width - 0.5;
-        var y = (e.clientY - rect.top) / rect.height - 0.5;
-        card.style.transform = "perspective(1000px) rotateY(" + (x * 10) + "deg) rotateX(" + (-y * 10) + "deg)";
-      });
-      card.addEventListener("mouseleave", function () { card.style.transform = ""; });
-    });
-  }
-})();
-</script>
 {% endblock %}

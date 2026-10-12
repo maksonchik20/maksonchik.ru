@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import socket
-from datetime import timedelta
+from datetime import timedelta, timezone as datetime_timezone
 
 from django.db import transaction
 from django.utils import timezone
@@ -18,10 +18,14 @@ from .metrics import PAYMENT_EVENTS, observe_metric
 from .models import BackgroundTask, UserTg, WhoUpdatePaymentOrder
 from .telegram import dispatch_telegram_request
 from .yookassa import get_payment
+from .video_note_age import VIDEO_NOTE_AGE_TASK, check_video_note_age
+from .history_exports import HISTORY_EXPORT_TASK, export_history_task
 
 logger = logging.getLogger(__name__)
 
 CONNECTION_REMINDER_TASK = "send_connection_reminder"
+ACCESS_EXPIRY_REMINDER_TASK = "send_access_expiry_reminder"
+ACCESS_EXPIRY_REMINDER_HOURS = (12, 24, 48)
 PAYMENT_RECONCILIATION_TASK = "reconcile_who_update_payment"
 STALE_AFTER = timedelta(minutes=5)
 MAX_BACKOFF_SECONDS = 3600
@@ -125,6 +129,41 @@ def schedule_connection_reminders(
             )
             tasks.append(task)
         return tasks
+
+
+def schedule_access_expiry_reminders(
+    bot_user: UserTg,
+    *,
+    at=None,
+) -> list[BackgroundTask]:
+    """Планирует оставшиеся напоминания от срока доступа, а не первого сообщения."""
+    at = at or timezone.now()
+    expires_at = bot_user.access_expires_at
+    if expires_at is None or bot_user.has_active_access(at):
+        return []
+
+    expiry_key = expires_at.astimezone(datetime_timezone.utc).isoformat()
+    tasks = []
+    with transaction.atomic():
+        for hours in ACCESS_EXPIRY_REMINDER_HOURS:
+            run_at = expires_at + timedelta(hours=hours)
+            # При позднем первом уведомлении или включении новой цепочки
+            # не отправляем сразу несколько уже пропущенных напоминаний.
+            if run_at <= at:
+                continue
+            task, _ = enqueue_background_task(
+                task_type=ACCESS_EXPIRY_REMINDER_TASK,
+                payload={
+                    "user_pk": bot_user.pk,
+                    "expires_at": expiry_key,
+                    "hours": hours,
+                },
+                run_at=run_at,
+                idempotency_key=f"access-expiry:{bot_user.pk}:{expiry_key}:{hours}h",
+                priority=50,
+            )
+            tasks.append(task)
+    return tasks
 
 
 def schedule_payment_reconciliation(
@@ -238,6 +277,51 @@ def _send_connection_reminder(task: BackgroundTask) -> None:
     raise RuntimeError(error)
 
 
+def _send_access_expiry_reminder(task: BackgroundTask) -> None:
+    if task.payload.get("delivery_status") == "sent":
+        return
+
+    user = UserTg.objects.filter(pk=task.payload.get("user_pk")).first()
+    if user is None:
+        raise PermanentTaskError("UserTg no longer exists")
+
+    expires_at = parse_datetime(task.payload.get("expires_at") or "")
+    # Продление оплатой, рефералом или вручную делает старую цепочку неактуальной,
+    # даже если новый срок доступа к моменту выполнения тоже уже закончился.
+    if (
+        expires_at is None
+        or user.access_expires_at != expires_at
+        or user.has_active_access()
+    ):
+        task.payload = {**task.payload, "delivery_status": "skipped"}
+        BackgroundTask.objects.filter(pk=task.pk).update(payload=task.payload)
+        return
+
+    from .subscriptions import expired_access_text, subscription_keyboard
+
+    ok, error = dispatch_telegram_request(
+        "sendMessage",
+        user.chat_id,
+        {
+            "text": expired_access_text(user),
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+            "reply_markup": subscription_keyboard(user),
+        },
+    )
+    if ok:
+        # Сохраняем результат до завершения задачи: после восстановления
+        # processing-lease уже подтверждённая отправка не повторяется.
+        task.payload = {**task.payload, "delivery_status": "sent"}
+        BackgroundTask.objects.filter(pk=task.pk).update(payload=task.payload)
+        return
+
+    error = error or "Unknown Telegram error"
+    if any(marker in error.lower() for marker in PERMANENT_SEND_ERRORS):
+        raise PermanentTaskError(error)
+    raise RuntimeError(error)
+
+
 def _reconcile_payment(task: BackgroundTask) -> None:
     order = WhoUpdatePaymentOrder.objects.filter(
         pk=task.payload.get("order_pk")
@@ -268,14 +352,17 @@ def _reconcile_payment(task: BackgroundTask) -> None:
     raise RuntimeError(f"ЮKassa payment status is {status or 'unknown'}")
 
 
-TASK_HANDLERS = {
+taskTypeToHandler = {
     CONNECTION_REMINDER_TASK: _send_connection_reminder,
+    ACCESS_EXPIRY_REMINDER_TASK: _send_access_expiry_reminder,
     PAYMENT_RECONCILIATION_TASK: _reconcile_payment,
+    VIDEO_NOTE_AGE_TASK: check_video_note_age,
+    HISTORY_EXPORT_TASK: export_history_task,
 }
 
 
 def process_claimed_task(task: BackgroundTask) -> bool:
-    handler = TASK_HANDLERS.get(task.task_type)
+    handler = taskTypeToHandler.get(task.task_type)
     if handler is None:
         _mark_failed(task, f"Unknown task type: {task.task_type}")
         return False

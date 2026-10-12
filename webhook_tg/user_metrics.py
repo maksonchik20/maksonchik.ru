@@ -39,7 +39,7 @@ def collect_daily_user_metrics(*, day: date | None = None, at: datetime | None =
     landing = WhoUpdateOnboardingFunnel.objects.filter(
         landing_viewed_at__gte=start,
         landing_viewed_at__lt=end,
-    )
+    ).exclude(landing_path="/bot/checkout/")
     unique_landing_visitors = (
         landing.exclude(metrika_client_id="")
         .values("metrika_client_id")
@@ -101,3 +101,35 @@ def daily_user_metrics_text(metrics: DailyUserMetrics) -> str:
         f"❌ Отключились: <b>{metrics.disconnected_users}</b>\n"
         f"⌛ Доступ закончился: <b>{metrics.expired_users}</b>"
     )
+
+
+def collect_recent_user_metrics(
+    *,
+    days: int = 5,
+    at: datetime | None = None,
+) -> list[DailyUserMetrics]:
+    """Return daily metrics from today backwards, using one common cutoff."""
+    if days < 1:
+        raise ValueError("days must be positive")
+
+    at = at or timezone.now()
+    today = timezone.localdate(at)
+    return [
+        collect_daily_user_metrics(day=today - timedelta(days=offset), at=at)
+        for offset in range(days)
+    ]
+
+
+def recent_user_metrics_text(metrics_by_day: list[DailyUserMetrics]) -> str:
+    lines = ["📊 <b>Статистика за 5 дней</b>"]
+    for metrics in metrics_by_day:
+        lines.extend(
+            [
+                "",
+                f"<b>{metrics.day:%d.%m.%Y}</b>",
+                f"▶️ /start: <b>{metrics.started_users}</b>",
+                f"✅ Подключились: <b>{metrics.connected_users}</b>",
+                f"❌ Отключились: <b>{metrics.disconnected_users}</b>",
+            ]
+        )
+    return "\n".join(lines)

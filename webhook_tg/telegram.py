@@ -26,15 +26,29 @@ logger = logging.getLogger(__name__)
 # на случай проблем с DNS или маршрутизацией до api.telegram.org.
 TELEGRAM_API_ENDPOINTS = (
     {"base": "https://api.telegram.org", "host": None, "verify": True, "connect_timeout": 2},
-    {"base": "https://149.154.167.220", "host": "api.telegram.org", "verify": False, "connect_timeout": 0.75},
-    {"base": "https://149.154.167.99", "host": "api.telegram.org", "verify": False, "connect_timeout": 0.75},
+    {"base": "https://149.154.167.220", "host": "api.telegram.org", "verify": True, "connect_timeout": 2},
+    {"base": "https://149.154.167.99", "host": "api.telegram.org", "verify": True, "connect_timeout": 2},
 )
 TELEGRAM_API_TIMEOUT = 8
 TELEGRAM_CONNECT_TIMEOUT = 2
 TELEGRAM_CIRCUIT_COOLDOWN = 30
 
+class _TelegramFallbackAdapter(HTTPAdapter):
+    """Connect to a fallback IP with Telegram's TLS SNI and certificate name."""
+
+    def init_poolmanager(self, connections, maxsize, block=False, **optionToValue):
+        optionToValue.update(server_hostname="api.telegram.org", assert_hostname="api.telegram.org")
+        return super().init_poolmanager(connections, maxsize, block=block, **optionToValue)
+
+
 TELEGRAM_SESSION = requests.Session()
 TELEGRAM_SESSION.mount("https://", HTTPAdapter(pool_connections=10, pool_maxsize=20))
+for endpointFieldToValue in TELEGRAM_API_ENDPOINTS:
+    if endpointFieldToValue.get("host"):
+        TELEGRAM_SESSION.mount(
+            endpointFieldToValue["base"] + "/",
+            _TelegramFallbackAdapter(pool_connections=2, pool_maxsize=20),
+        )
 
 _endpoint_failures: dict[str, float] = {}
 _endpoint_failures_lock = threading.Lock()
@@ -68,7 +82,7 @@ def telegram_webhook_secret() -> str:
     return sha256(f"who-update:{TOKEN_BOT}".encode()).hexdigest()
 
 
-def _telegram_post(method: str, *, json=None, data=None, files=None, timeout: int = TELEGRAM_API_TIMEOUT):
+def _telegram_post(method: str, *, json=None, data=None, files=None, timeout: int = TELEGRAM_API_TIMEOUT, content_type=None):
     """POST к Bot API с connection pool и circuit breaker для endpoint'ов."""
     started_at = time.monotonic()
     is_send = method.startswith("send")
@@ -82,17 +96,21 @@ def _telegram_post(method: str, *, json=None, data=None, files=None, timeout: in
             continue
         attempted = True
         url = f"{endpoint['base'].rstrip('/')}/bot{TOKEN_BOT}/{method}"
-        headers = {}
+        headerToValue = {}
         host = endpoint.get("host")
         if host:
-            headers["Host"] = host
+            headerToValue["Host"] = host
+        if content_type:
+            headerToValue["Content-Type"] = content_type
+            # A fallback endpoint must receive the complete multipart body.
+            data.seek(0)
         try:
             response = TELEGRAM_SESSION.post(
                 url,
                 json=json,
                 data=data,
                 files=files,
-                headers=headers or None,
+                headers=headerToValue or None,
                 timeout=(endpoint.get("connect_timeout", TELEGRAM_CONNECT_TIMEOUT), timeout),
                 verify=endpoint.get("verify", True),
             )
@@ -543,6 +561,23 @@ def dispatch_document_bytes(
     return True, ""
 
 
+def dispatch_document_file(chat_id, document, *, filename, caption="", content_type="text/plain; charset=utf-8", timeout=30):
+    """Stream a private spool file without requests' eager multipart encoding."""
+    from .history_files import DocumentMultipart
+
+    try:
+        body = DocumentMultipart(document, chat_id=chat_id, filename=filename, caption=caption, content_type=content_type)
+        response = _telegram_post("sendDocument", data=body, content_type=body.content_type, timeout=timeout)
+        fieldToResult = response.json()
+    except (requests.RequestException, ValueError, OSError) as exc:
+        return False, _safe_telegram_error(exc)
+    if not fieldToResult.get("ok"):
+        return False, str(fieldToResult.get("description") or "Telegram document upload failed")
+    log_bot_outgoing(chat_id=chat_id, method="sendDocument",
+                     payload={"caption": caption, "document": filename}, result=fieldToResult.get("result"))
+    return True, ""
+
+
 def delete_business_messages(
     business_connection_id: str,
     message_ids: list[int],
@@ -578,6 +613,7 @@ def send_photo_bytes(
     timeout: int = 60,
     filename: str = "photo.jpg",
     content_type: str = "image/jpeg",
+    source_file_id: str | None = None,
 ) -> bool:
     if not chat_id or not image_bytes:
         return False
@@ -593,10 +629,20 @@ def send_photo_bytes(
             response = _telegram_post("sendPhoto", data=data, files=files, timeout=timeout)
             result = response.json()
             if result.get("ok"):
+                if source_file_id:
+                    from .photo_copies import remember_photo_copy
+
+                    remember_photo_copy(source_file_id, result.get("result") or {})
                 log_bot_outgoing(
                     chat_id=chat_id,
                     method="sendPhoto",
-                    payload={"caption": caption, "photo": filename},
+                    payload={
+                        "caption": caption,
+                        "photo": filename,
+                        **({"source_file_id": source_file_id,
+                            "saved_photo": (result.get("result") or {}).get("photo", [])}
+                           if source_file_id else {}),
+                    },
                     result=result.get("result"),
                 )
                 return True
@@ -712,7 +758,7 @@ def guess_telegram_file_mime(file_path: str, file_type: str | None = None) -> st
         if path.endswith(ext):
             return mime
     ft = (file_type or "").upper()
-    if ft == "PHOTO":
+    if ft in ("PHOTO", "SELF_DESTRUCT_PHOTO"):
         return "image/jpeg"
     if ft == "VIDEO":
         return "video/mp4"

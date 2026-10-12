@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.db import transaction
 from django.utils import timezone
 
+from main.context_processors import site
 from .metrics import ONBOARDING_EVENTS, observe_metric
 from .models import UserTg, WhoUpdateOnboardingFunnel
 
@@ -28,6 +29,7 @@ def capture_landing_view(request) -> WhoUpdateOnboardingFunnel:
     funnel = WhoUpdateOnboardingFunnel.objects.create(
         landing_path=str(request.path or "/bot/")[:255],
         landing_viewed_at=timezone.now(),
+        metrika_counter_id=site(request)["site"]["metrika_id"],
         **{name: _query_value(request, name) for name in TRACKING_QUERY_FIELDS},
     )
     observe_metric(

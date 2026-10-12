@@ -2,11 +2,6 @@ import io
 import re
 from datetime import timedelta
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.dates as mdates
-import matplotlib.pyplot as plt
 from django.utils import timezone
 
 from .models import BotOutgoingMessage
@@ -87,6 +82,12 @@ def format_outgoing_events_summary(period: timedelta) -> str:
 
 
 def build_outgoing_events_chart(period: timedelta) -> tuple[bytes, str]:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.dates as mdates
+    import matplotlib.pyplot as plt
+
     now = timezone.localtime()
     start = now - period
     bucket = _bucket_size(period)
