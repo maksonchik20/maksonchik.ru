@@ -94,11 +94,15 @@ class WheelTests(TestCase):
         self.assertEqual(self.client.get("/bot/wheel/api/spin/").status_code, 405)
 
     def test_exact_prize_probability_intervals(self):
-        counts = Counter()
+        self.assertEqual(PRIZE_WEIGHTS, (45, 25, 15, 4, 1, 10))
+        self.assertEqual(sum(PRIZE_WEIGHTS), 100)
+        prizeIdToCount = Counter()
         for ticket in range(100):
             with patch("webhook_tg.wheel.secrets.randbelow", return_value=ticket):
-                counts[choose_prize()["id"]] += 1
-        self.assertEqual(counts, dict(zip([p["id"] for p in PRIZES], PRIZE_WEIGHTS)))
+                prizeIdToCount[choose_prize()["id"]] += 1
+        self.assertEqual(prizeIdToCount, dict(zip([fieldToValue["id"] for fieldToValue in PRIZES], PRIZE_WEIGHTS)))
+        self.assertEqual(prizeIdToCount["days3"] + prizeIdToCount["days7"], 5)
+        self.assertEqual(prizeIdToCount["days3"] * 3 + prizeIdToCount["days7"] * 7, 19)
 
     @patch("webhook_tg.wheel.choose_prize", return_value=PRIZES[5])
     def test_spin_is_idempotent_and_ignores_client_prize(self, choose):
@@ -258,7 +262,7 @@ class WheelTests(TestCase):
         self.assertEqual(create.call_count, 1)
         order.refresh_from_db()
         self.assertEqual(order.duration_days, 60)
-        self.assertEqual(order.amount, Decimal("99.00"))
+        self.assertEqual(order.amount, Decimal("129.00"))
         self.assertNotEqual(old.pk, new.pk)
 
     def test_ui_has_daily_rules_without_private_test_copy(self):
@@ -273,7 +277,7 @@ class WheelTests(TestCase):
         for plan, config in PLAN_CONFIG.items():
             self.assertEqual(plan_config_for_user(self.regular, plan), config)
         keyboard = subscription_keyboard(self.regular)
-        self.assertEqual([row[0]["text"] for row in keyboard["inline_keyboard"][:3]], ["1 месяц — 99 ₽", "3 месяца — 249 ₽", "1 год — 800 ₽"])
+        self.assertEqual([row[0]["text"] for row in keyboard["inline_keyboard"][:3]], ["1 месяц — 129 ₽", "3 месяца — 249 ₽", "1 год — 800 ₽"])
         self.assertIn("web_app", keyboard["inline_keyboard"][3][0])
         self.assertNotIn("<s>", expired_access_text(self.regular))
         self.assertNotIn("wheel_reward", signing.loads(checkout_token(self.regular, "month"), salt=CHECKOUT_SIGNING_SALT))
@@ -318,10 +322,10 @@ class WheelTests(TestCase):
         self.assertContains(self.subscribe(), "https://pay.example/test")
         self.assertEqual(self.subscribe(plan="year").status_code, 409)
         order = WhoUpdatePaymentOrder.objects.get()
-        self.assertEqual(order.amount, Decimal("84.15"))
+        self.assertEqual(order.amount, Decimal("109.65"))
         self.assertEqual(order.duration_days, 30)
         self.assertEqual(create.call_count, 1)
-        self.assertEqual(create.call_args.kwargs["amount"], Decimal("84.15"))
+        self.assertEqual(create.call_args.kwargs["amount"], Decimal("109.65"))
         self.assertEqual(create.call_args.kwargs["idempotence_key"], str(order.public_id))
         reward.refresh_from_db()
         self.assertIsNone(reward.used_at)

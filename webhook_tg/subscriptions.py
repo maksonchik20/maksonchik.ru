@@ -30,7 +30,7 @@ PURCHASE_PROMOTION_TEXT = (
 )
 
 PLAN_CONFIG = {
-    "month": {"label": "1 месяц", "days": 30, "amount": Decimal("99.00")},
+    "month": {"label": "1 месяц", "days": 30, "amount": Decimal("129.00")},
     "three_months": {"label": "3 месяца", "days": 90, "amount": Decimal("249.00")},
     "year": {"label": "1 год", "days": 365, "amount": Decimal("800.00")},
 }

@@ -127,7 +127,7 @@ class SeoPagesTest(TestCase):
         self.assertContains(privacy, "ИНН 330640351621")
         self.assertContains(terms, "Условия использования и оплаты")
         self.assertContains(terms, "пробный период 7 дней")
-        self.assertContains(terms, "1 месяц — 99 ₽")
+        self.assertContains(terms, "1 месяц — 129 ₽")
         self.assertContains(terms, "автоматического продления")
 
     def test_home_schema_uses_person_and_website(self):

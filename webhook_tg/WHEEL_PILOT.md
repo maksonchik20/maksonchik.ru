@@ -9,10 +9,16 @@ name, retained for compatibility with payment worker imports, and now accepts
 any positive private-chat identity. `setup_wheel_pilot` is a legacy owner-menu
 command and is not part of the public rollout.
 
-Prizes / independent probabilities: −10% 35%, −15% 25%, −20% 15%, +3 days 10%,
-+7 days 5%, double duration 10%. The equal visual sectors are decorative; the
+Prizes / independent probabilities: −10% 45%, −15% 25%, −20% 15%, +3 days 4%,
++7 days 1%, double duration 10%. The equal visual sectors are decorative; the
 actual probabilities are private server-side configuration, not exposed in
 the rules, Mini App API or new invitation messages.
+
+As of 15 October 2026, new monthly orders cost 129 RUB (quarterly 249 RUB,
+yearly 800 RUB). The free-day probability is 5% per new spin, with an expected
+0.19 free days per spin. Existing rewards, granted access and reserved order
+amounts/durations are unchanged. An unreserved checkout link does not fix a
+price; the newly created order uses the current tariff, shown before payment.
 
 One spin per Moscow calendar day (resets at 00:00). +3/+7 days extend access
 immediately for free, from the current expiry or now if access has expired.

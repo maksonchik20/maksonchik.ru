@@ -19,23 +19,27 @@ class PriceUpdateTests(TestCase):
         return WhoUpdateWheelReward.objects.create(user=self.user,prize=prize,spin_day=spin_day(),expires_at=timezone.now()+timedelta(hours=24))
 
     def test_new_prices_in_state_and_buttons(self):
-        self.assertEqual({key:config['amount'] for key,config in PLAN_CONFIG.items()},{'month':Decimal('99.00'),'three_months':Decimal('249.00'),'year':Decimal('800.00')})
-        data=state(self.user)
-        self.assertEqual([p['amount'] for p in data['plans']],['99.00','249.00','800.00'])
-        self.assertEqual([row[0]['text'] for row in subscription_keyboard(self.user)['inline_keyboard'][:3]],['1 месяц — 99 ₽','3 месяца — 249 ₽','1 год — 800 ₽'])
+        self.assertEqual({key:fieldToValue['amount'] for key,fieldToValue in PLAN_CONFIG.items()},{'month':Decimal('129.00'),'three_months':Decimal('249.00'),'year':Decimal('800.00')})
+        fieldToValue=state(self.user)
+        self.assertEqual([planFieldToValue['amount'] for planFieldToValue in fieldToValue['plans']],['129.00','249.00','800.00'])
+        self.assertEqual([row[0]['text'] for row in subscription_keyboard(self.user)['inline_keyboard'][:3]],['1 месяц — 129 ₽','3 месяца — 249 ₽','1 год — 800 ₽'])
 
     @override_settings(ALLOWED_HOSTS=['who-update.ru'])
     def test_terms_and_structured_prices_are_updated(self):
         response=self.client.get('/terms/',HTTP_HOST='who-update.ru')
+        self.assertContains(response,'1 месяц — 129 ₽')
         self.assertContains(response,'3 месяца — 249 ₽')
         self.assertContains(response,'1 год — 800 ₽')
         landing=self.client.get('/',HTTP_HOST='who-update.ru')
+        self.assertContains(landing,'"price": "129"')
         self.assertContains(landing,'"price": "249"')
         self.assertContains(landing,'"price": "800"')
 
     def test_new_discount_amounts_and_double_duration(self):
-        for prize,quarter,year in [('discount10','224.10','720.00'),('discount15','211.65','680.00'),('discount20','199.20','640.00'),('double','249.00','800.00')]:
+        for prize,month,quarter,year in [('discount10','116.10','224.10','720.00'),('discount15','109.65','211.65','680.00'),('discount20','103.20','199.20','640.00'),('double','129.00','249.00','800.00')]:
             reward=self.reward(prize)
+            self.assertEqual(plan_config_for_user(self.user,'month')['amount'],Decimal(month))
+            self.assertEqual(plan_config_for_user(self.user,'month')['days'],60 if prize=='double' else 30)
             self.assertEqual(plan_config_for_user(self.user,'three_months')['amount'],Decimal(quarter))
             self.assertEqual(plan_config_for_user(self.user,'year')['amount'],Decimal(year))
             self.assertEqual(plan_config_for_user(self.user,'year')['days'],730 if prize=='double' else 365)

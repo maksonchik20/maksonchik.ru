@@ -65,7 +65,7 @@ class PaymentTrackingTests(TestCase):
         self.assertEqual(response["Cache-Control"], "no-store")
         order = WhoUpdatePaymentOrder.objects.get()
         self.assertEqual(order.status, WhoUpdatePaymentOrder.Status.PENDING)
-        self.assertEqual(order.amount, Decimal("99.00"))
+        self.assertEqual(order.amount, Decimal("129.00"))
         funnel = order.metrika_funnel
         self.assertEqual(funnel.user, self.user)
         self.assertEqual(funnel.metrika_counter_id, 112093587)
@@ -160,7 +160,7 @@ class PaymentTrackingTests(TestCase):
         self.assertEqual(WhoUpdatePaymentOrder.objects.count(), 1)
         self.assertEqual(WhoUpdateOnboardingFunnel.objects.count(), 1)
         order = WhoUpdatePaymentOrder.objects.get()
-        self.assertEqual(order.amount, Decimal("89.10"))
+        self.assertEqual(order.amount, Decimal("116.10"))
         self.assertEqual(order.metrika_funnel.user, self.user)
         create.assert_called_once()
 
@@ -175,7 +175,7 @@ class PaymentTrackingTests(TestCase):
 
         order = WhoUpdatePaymentOrder.objects.get()
         self.assertEqual(order.duration_days, 60)
-        self.assertEqual(order.amount, Decimal("99.00"))
+        self.assertEqual(order.amount, Decimal("129.00"))
         self.assertContains(response, "Доступ на 60 дн.")
         self.assertNotContains(response, order.get_plan_display())
         create.assert_called_once()

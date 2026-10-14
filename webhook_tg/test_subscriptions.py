@@ -129,7 +129,7 @@ class WhoUpdateAccessTests(TestCase):
         send_message.assert_called_once()
         message = send_message.call_args.args[1]
         keyboard = send_message.call_args.kwargs["reply_markup"]
-        self.assertIn("99 ₽", message)
+        self.assertIn("129 ₽", message)
         self.assertIn("https://t.me/who_update_bot?start=ref_", message)
         self.assertIn("/referral", message)
         self.assertEqual(len(keyboard["inline_keyboard"]), 4)  # Public Mini App entry.
@@ -173,8 +173,8 @@ class WhoUpdatePaymentTests(TestCase):
 
     def test_month_price_is_the_same_for_owner_and_regular_user(self):
         regular_user = UserTg.objects.create(user_id=300, chat_id=300)
-        self.assertEqual(plan_config_for_user(self.user, "month")["amount"], Decimal("99.00"))
-        self.assertEqual(plan_config_for_user(regular_user, "month")["amount"], Decimal("99.00"))
+        self.assertEqual(plan_config_for_user(self.user, "month")["amount"], Decimal("129.00"))
+        self.assertEqual(plan_config_for_user(regular_user, "month")["amount"], Decimal("129.00"))
         self.assertEqual(
             plan_config_for_user(self.user, "three_months")["amount"],
             Decimal("249.00"),
@@ -190,8 +190,8 @@ class WhoUpdatePaymentTests(TestCase):
 
         self.assertContains(response, "https://yookassa.test/confirmation")
         order = WhoUpdatePaymentOrder.objects.get(yookassa_payment_id="test-one-ruble-payment")
-        self.assertEqual(order.amount, Decimal("99.00"))
-        self.assertEqual(create_payment_mock.call_args.kwargs["amount"], Decimal("99.00"))
+        self.assertEqual(order.amount, Decimal("129.00"))
+        self.assertEqual(create_payment_mock.call_args.kwargs["amount"], Decimal("129.00"))
         self.assertEqual(
             create_payment_mock.call_args.kwargs["return_url"],
             f"https://who-update.ru/bot/payment/{order.public_id}/",
@@ -200,7 +200,7 @@ class WhoUpdatePaymentTests(TestCase):
             idempotency_key=f"who-update-payment-open:{order.public_id}"
         )
         self.assertIn("переход к оплате", notification.payload["text"])
-        self.assertIn("99.00 ₽", notification.payload["text"])
+        self.assertIn("129.00 ₽", notification.payload["text"])
         task = BackgroundTask.objects.get(
             task_type=PAYMENT_RECONCILIATION_TASK,
             idempotency_key=f"payment-reconcile:{order.public_id}",
@@ -226,7 +226,7 @@ class WhoUpdatePaymentTests(TestCase):
             idempotency_key=f"who-update-payment-paid:{self.order.public_id}"
         )
         self.assertIn("получена оплата", notification.payload["text"])
-        self.assertIn("99.00 ₽", notification.payload["text"])
+        self.assertIn("1 месяц — <s>129 ₽</s> 99 ₽", notification.payload["text"])
         user_notification = TelegramOutbox.objects.get(
             idempotency_key=f"who-update-payment-user-paid:{self.order.public_id}"
         )

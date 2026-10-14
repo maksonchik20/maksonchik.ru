@@ -47,7 +47,7 @@ class PublicWheelTests(TestCase):
         self.assertContains(self.client.get(f'/bot/subscribe/month/{token}/'),'https://pay.example/test')
         order = WhoUpdatePaymentOrder.objects.get()
         self.assertEqual(order.user,self.user)
-        self.assertEqual(order.amount,Decimal('84.15'))
+        self.assertEqual(order.amount,Decimal('109.65'))
         self.assertEqual(order.duration_days,30)
         self.assertEqual(create.call_count,1)
         from .wheel_checkout import checkout

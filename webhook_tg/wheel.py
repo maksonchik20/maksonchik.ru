@@ -23,7 +23,7 @@ PRIZES = (
     {"id": "days7", "label": "+7 дней", "extra_days": 7},
     {"id": "double", "label": "×2 срока", "multiplier": 2},
 )
-PRIZE_WEIGHTS = (35, 25, 15, 10, 5, 10)
+PRIZE_WEIGHTS = (45, 25, 15, 4, 1, 10)
 MOSCOW = ZoneInfo("Europe/Moscow")
 INSTANT_DAY_PRIZES = {"days3": 3, "days7": 7}
 
