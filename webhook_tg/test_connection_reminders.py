@@ -23,6 +23,7 @@ class ConnectionReminderCommandTests(TestCase):
             user_id=104,
             chat_id=104,
             access_unlimited=False,
+            trial_started_at=timezone.now() - timedelta(days=8),
             access_expires_at=timezone.now() - timedelta(minutes=1),
         )
 

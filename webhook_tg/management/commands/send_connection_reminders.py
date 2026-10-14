@@ -54,6 +54,7 @@ class Command(BaseCommand):
             expired_users = list(
                 UserTg.objects.filter(
                     access_unlimited=False,
+                    trial_started_at__isnull=False,
                     access_expires_at__isnull=False,
                     access_expires_at__lte=now,
                     access_expired_notified_at__isnull=True,
@@ -74,6 +75,7 @@ class Command(BaseCommand):
             recently_expired_users = (
                 UserTg.objects.filter(
                     access_unlimited=False,
+                    trial_started_at__isnull=False,
                     access_expires_at__gt=now - timedelta(hours=max(ACCESS_EXPIRY_REMINDER_HOURS)),
                     access_expires_at__lte=now,
                     access_expired_notified_at__isnull=False,

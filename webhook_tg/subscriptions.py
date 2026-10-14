@@ -193,6 +193,13 @@ def access_status_text(bot_user: UserTg, at=None) -> str:
         expires = timezone.localtime(bot_user.access_expires_at)
         remaining = max((bot_user.access_expires_at - at).days + 1, 1)
         access_line = f"Доступ до: <b>{expires:%d.%m.%Y %H:%M}</b> МСК\nОсталось: <b>{remaining} дн.</b>"
+    elif bot_user.trial_started_at is None:
+        access_line = (
+            f"Пробный период: <b>{TRIAL_DAYS} дней бесплатно</b>.\n"
+            "Он начнётся после первого успешного подключения бота "
+            "в разделе «Автоматизация чатов».\n\n"
+            "Нажмите /start, чтобы открыть инструкцию подключения.\n"
+        )
     else:
         access_line = "Доступ: <b>закончился</b>"
         referral_section = (
@@ -205,7 +212,7 @@ def access_status_text(bot_user: UserTg, at=None) -> str:
         "⏳ <b>Доступ к WhoUpdate</b>\n\n"
         f"{access_line}\n"
         f"Бонус за приглашённых: <b>{bot_user.referral_bonus_days} дн.</b>\n\n"
-        "Продлить доступ можно оплатой или приглашением друга.\n\n"
+        "Получить дополнительный доступ можно оплатой или приглашением друга.\n\n"
         f"{purchase_promotion_text(bot_user)}"
         f"{referral_section}"
     )
@@ -249,6 +256,7 @@ def notify_access_expired(bot_user: UserTg, at=None) -> bool:
         if (
             bot_user is None
             or bot_user.has_active_access(at)
+            or bot_user.trial_started_at is None
             or bot_user.access_expired_notified_at is not None
         ):
             return False

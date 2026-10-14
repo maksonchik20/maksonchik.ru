@@ -139,7 +139,7 @@ def schedule_access_expiry_reminders(
     """Планирует оставшиеся напоминания от срока доступа, а не первого сообщения."""
     at = at or timezone.now()
     expires_at = bot_user.access_expires_at
-    if expires_at is None or bot_user.has_active_access(at):
+    if expires_at is None or bot_user.trial_started_at is None or bot_user.has_active_access(at):
         return []
 
     expiry_key = expires_at.astimezone(datetime_timezone.utc).isoformat()
@@ -290,6 +290,7 @@ def _send_access_expiry_reminder(task: BackgroundTask) -> None:
     # даже если новый срок доступа к моменту выполнения тоже уже закончился.
     if (
         expires_at is None
+        or user.trial_started_at is None
         or user.access_expires_at != expires_at
         or user.has_active_access()
     ):

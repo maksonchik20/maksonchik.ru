@@ -34,6 +34,7 @@ class WhoUpdateAccessTests(TestCase):
             user_id=OWNER_TELEGRAM_ID,
             chat_id=OWNER_TELEGRAM_ID,
             access_unlimited=False,
+            trial_started_at=timezone.now() - timedelta(days=8),
             access_expires_at=timezone.now() - timedelta(minutes=1),
             referral_bonus_days=7,
         )
@@ -56,7 +57,10 @@ class WhoUpdateAccessTests(TestCase):
         self.assertFalse(user.has_active_access())
 
     def test_regular_user_gets_seven_day_trial(self):
-        user = UserTg.objects.create(user_id=100, chat_id=100)
+        user = UserTg.objects.create(
+            user_id=100, chat_id=100,
+            business_is_connected=True, business_connection_id="first-connection",
+        )
         before = timezone.now()
         self.assertTrue(start_trial_if_needed(user, at=before))
         user.refresh_from_db()
@@ -65,7 +69,10 @@ class WhoUpdateAccessTests(TestCase):
         self.assertEqual(user.access_expires_at, before + timedelta(days=7))
 
     def test_owner_gets_seven_day_trial(self):
-        user = UserTg.objects.create(user_id=OWNER_TELEGRAM_ID, chat_id=OWNER_TELEGRAM_ID)
+        user = UserTg.objects.create(
+            user_id=OWNER_TELEGRAM_ID, chat_id=OWNER_TELEGRAM_ID,
+            business_is_connected=True, business_connection_id="owner-connection",
+        )
         before = timezone.now()
         self.assertTrue(apply_rollout_policy(user))
         self.assertTrue(start_trial_if_needed(user, at=before))
@@ -111,6 +118,7 @@ class WhoUpdateAccessTests(TestCase):
             chat_id=OWNER_TELEGRAM_ID,
             business_connection_id="expired-connection",
             access_unlimited=False,
+            trial_started_at=timezone.now() - timedelta(days=8),
             access_expires_at=timezone.now() - timedelta(seconds=1),
         )
         msg = {"business_connection_id": "expired-connection"}

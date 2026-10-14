@@ -24,6 +24,7 @@ class AccessExpiryReminderTests(TestCase):
             user_id=801,
             chat_id=801,
             access_unlimited=False,
+            trial_started_at=self.expires_at - timedelta(days=7),
             access_expires_at=self.expires_at,
         )
 

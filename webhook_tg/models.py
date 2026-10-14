@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models.functions import Lower
 from django.utils import timezone
 
@@ -140,23 +140,31 @@ class UserTg(models.Model):
         return bool(self.access_expires_at and self.access_expires_at > at)
 
     def ensure_trial_started(self, at=None):
-        if self.access_unlimited or self.trial_started_at:
+        # The connection handler has not persisted these fields yet. Only a
+        # confirmed enabled connection may start the trial, never a command.
+        if not self.business_is_connected or not self.business_connection_id:
             return False
         at = at or timezone.now()
-        self.trial_started_at = at
-        trial_days = int(getattr(settings, "WHO_UPDATE_TRIAL_DAYS", 7))
-        self.access_expires_at = at + timedelta(
-            days=trial_days + self.referral_bonus_days
-        )
-        self.access_expired_notified_at = None
-        self.save(
-            update_fields=[
-                "trial_started_at",
-                "access_expires_at",
-                "access_expired_notified_at",
-            ]
-        )
-        return True
+        with transaction.atomic():
+            current = type(self).objects.select_for_update().get(pk=self.pk)
+            started = not current.access_unlimited and current.trial_started_at is None
+            if started:
+                current.trial_started_at = at
+                trial_days = int(getattr(settings, "WHO_UPDATE_TRIAL_DAYS", 7))
+                # Payments and referral/wheel bonuses may precede connection.
+                # They are already in the deadline: retain them exactly once.
+                base = max(at, current.access_expires_at or at)
+                current.access_expires_at = base + timedelta(days=trial_days)
+                current.access_expired_notified_at = None
+                current.save(update_fields=[
+                    "trial_started_at", "access_expires_at", "access_expired_notified_at",
+                ])
+            # Refresh access only, retaining the pending connection fields.
+            self.access_unlimited = current.access_unlimited
+            self.trial_started_at = current.trial_started_at
+            self.access_expires_at = current.access_expires_at
+            self.access_expired_notified_at = current.access_expired_notified_at
+            return started
 
     def extend_access(self, days, at=None):
         at = at or timezone.now()

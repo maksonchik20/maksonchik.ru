@@ -257,7 +257,6 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
             update_id=update_id,
             started_at=now,
         )
-        start_trial_if_needed(bot_user, at=now)
         bot_user.refresh_from_db()
         bot_user.last_start_at = now
         bot_user.connection_reminder_sent_at = None
@@ -277,7 +276,7 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
             start_update_id=update_id,
             onboarding_funnel_id=onboarding_funnel.pk,
         )
-        if bot_user.has_active_access(now):
+        if bot_user.has_active_access(now) or bot_user.trial_started_at is None:
             send_meeting_message(chat_id, update_id=update_id)
         else:
             send_message_reliably(
@@ -289,8 +288,7 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
     elif command == "/spin" and is_message_to_bot(data) and type(chat_id) is int and chat_id == from_user_id and chat_id > 0:
         from .wheel_announcement import announcement_payload
         bot_user, created = _init_user_bot(from_user_id, chat_id, username, first_name, notify_owner=False)
-        if created:
-            start_trial_if_needed(bot_user)
+        apply_rollout_policy(bot_user)
         payload = announcement_payload()
         send_message_reliably(
             chat_id, payload["text"],
