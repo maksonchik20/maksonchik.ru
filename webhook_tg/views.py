@@ -318,7 +318,12 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
         pass
     elif is_message_to_bot(data) and _handle_events_command(chat_id, text):
         pass
-    elif is_message_to_bot(data) and _handle_metric_command(chat_id, from_user_id, command):
+    elif is_message_to_bot(data) and _handle_metric_command(
+        chat_id,
+        from_user_id,
+        command,
+        update_id=update_id,
+    ):
         pass
     elif is_message_to_bot(data) and _handle_stat_command(
         chat_id,
@@ -627,7 +632,13 @@ def _handle_events_command(chat_id, text: str) -> bool:
     return True
 
 
-def _handle_metric_command(chat_id, from_user_id, command: str) -> bool:
+def _handle_metric_command(
+    chat_id,
+    from_user_id,
+    command: str,
+    *,
+    update_id: int,
+) -> bool:
     if command != "/metric":
         return False
     if str(from_user_id) != str(OWNER_CHAT_ID):
@@ -635,7 +646,11 @@ def _handle_metric_command(chat_id, from_user_id, command: str) -> bool:
         return True
 
     snapshot = collect_resource_snapshot()
-    tg_send_message(chat_id, resource_report_text(snapshot))
+    send_message_reliably(
+        chat_id,
+        resource_report_text(snapshot),
+        idempotency_key=f"command:{update_id}:metric",
+    )
     return True
 
 
