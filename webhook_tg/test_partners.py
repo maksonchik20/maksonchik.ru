@@ -4,6 +4,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -12,7 +13,8 @@ from .models import (UserTg, WhoUpdatePaymentOrder as Order, WhoUpdatePartnerSet
                      WhoUpdatePartnerProfile as Profile, WhoUpdatePartnerCommission as Commission,
                      WhoUpdatePartnerWithdrawal as Withdrawal, WhoUpdateWithdrawalDraft as Draft, TelegramOutbox, BotChatEvent)
 from .partners import (accrue_commission, partner_balance, partner_percent, create_withdrawal,
-                       resolve_withdrawals, void_commissions, referral_statistics)
+                       resolve_withdrawals, void_commissions, referral_statistics,
+                       enqueue_withdrawal_owner_notification)
 from .partner_bot import handle_money_message, handle_money_callback
 from .payment_views import fulfill_order
 from .subscriptions import referral_link, register_referral
@@ -206,6 +208,130 @@ class PartnerTests(PartnerFixtures, TestCase):
             self.assertEqual(self.client.get(url).status_code, 403)
 
 
+class WithdrawalNotificationTests(PartnerFixtures, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.credit("1000")
+        self.owner_chat_id = 930001
+        owner = patch("webhook_tg.partners.OWNER_CHAT_ID", self.owner_chat_id)
+        owner.start()
+        self.addCleanup(owner.stop)
+
+    def test_new_request_queues_owner_notification_with_admin_link(self):
+        self.partner.first_name = "Александр"
+        self.partner.save(update_fields=["first_name"])
+
+        withdrawal = self.withdraw("59.00")
+
+        notice = TelegramOutbox.objects.get()
+        self.assertEqual(notice.chat_id, self.owner_chat_id)
+        self.assertNotEqual(notice.chat_id, self.partner.chat_id)
+        self.assertEqual(notice.method, TelegramOutbox.Method.SEND_MESSAGE)
+        self.assertEqual(notice.status, TelegramOutbox.Status.PENDING)
+        self.assertEqual(notice.idempotency_key, f"who-update-withdrawal-created:{withdrawal.pk}")
+        self.assertEqual(notice.payload["parse_mode"], "HTML")
+        text = notice.payload["text"]
+        self.assertIn(str(withdrawal.pk), text)
+        self.assertIn("59.00", text.replace(",", "."))
+        self.assertIn("Александр", text)
+        self.assertIn("@partner_demo", text)
+        self.assertIn(str(self.partner.user_id), text)
+        buttons = notice.payload["reply_markup"]["inline_keyboard"]
+        self.assertIn(
+            f"https://maksonchik.ru/admin/webhook_tg/whoupdatepartnerwithdrawal/{withdrawal.pk}/change/",
+            [button.get("url") for row in buttons for button in row],
+        )
+        self.assertEqual(withdrawal.status, Withdrawal.Status.NEW)
+        self.assertEqual(partner_balance(self.partner)["payable"], Decimal("241.00"))
+
+    def test_repeated_request_has_only_one_owner_notification(self):
+        key = uuid.uuid4()
+        withdrawal = self.withdraw("59.00", key)
+
+        self.assertEqual(self.withdraw("59.00", key).pk, withdrawal.pk)
+
+        self.assertEqual(Withdrawal.objects.count(), 1)
+        self.assertEqual(TelegramOutbox.objects.count(), 1)
+        self.assertEqual(partner_balance(self.partner)["reserved"], Decimal("59.00"))
+
+    def test_invalid_or_unfunded_requests_do_not_queue_notifications(self):
+        for amount in ("0", "-1", "1.001", "NaN", "Infinity", "301"):
+            with self.subTest(amount=amount), self.assertRaises(ValueError):
+                self.withdraw(amount)
+        self.assertFalse(Withdrawal.objects.exists())
+        self.assertFalse(TelegramOutbox.objects.exists())
+
+    def test_backfill_is_idempotent_and_preserves_financial_records(self):
+        withdrawal = Withdrawal.objects.create(
+            partner=self.partner, amount=Decimal("59.00"), request_key=uuid.uuid4(),
+        )
+        fieldToBeforeValue = Withdrawal.objects.values().get(pk=withdrawal.pk)
+        balanceTypeToBeforeAmount = partner_balance(self.partner)
+
+        first = enqueue_withdrawal_owner_notification(withdrawal)
+        second = enqueue_withdrawal_owner_notification(withdrawal)
+
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(TelegramOutbox.objects.count(), 1)
+        self.assertEqual(Withdrawal.objects.values().get(pk=withdrawal.pk), fieldToBeforeValue)
+        self.assertEqual(partner_balance(self.partner), balanceTypeToBeforeAmount)
+
+    def test_partner_details_are_html_escaped(self):
+        self.partner.first_name = '<b>Александр & "К"</b>'
+        self.partner.username = "demo<&>"
+        self.partner.save(update_fields=["first_name", "username"])
+
+        self.withdraw()
+
+        text = TelegramOutbox.objects.get().payload["text"]
+        self.assertIn("&lt;b&gt;Александр &amp;", text)
+        self.assertIn("&lt;/b&gt;", text)
+        self.assertIn("@demo&lt;&amp;&gt;", text)
+        self.assertNotIn(self.partner.first_name, text)
+        self.assertNotIn(self.partner.username, text)
+
+    def test_partner_without_username_can_request_withdrawal(self):
+        self.partner.username = None
+        self.partner.first_name = "Без имени"
+        self.partner.save(update_fields=["username", "first_name"])
+
+        self.withdraw()
+
+        text = TelegramOutbox.objects.get().payload["text"]
+        self.assertIn("Без имени", text)
+        self.assertIn(str(self.partner.user_id), text)
+        self.assertNotIn("None", text)
+
+    def test_enqueue_exception_rolls_back_withdrawal_and_reservation(self):
+        with patch("webhook_tg.partners.enqueue_outbox", side_effect=RuntimeError("queue unavailable")):
+            with self.assertRaises(RuntimeError):
+                self.withdraw()
+
+        self.assertFalse(Withdrawal.objects.exists())
+        self.assertFalse(TelegramOutbox.objects.exists())
+        self.assertEqual(partner_balance(self.partner)["payable"], Decimal("300.00"))
+
+    def test_enqueue_without_result_rolls_back_withdrawal_and_reservation(self):
+        with patch("webhook_tg.partners.enqueue_outbox", return_value=None):
+            with self.assertRaises(RuntimeError):
+                self.withdraw()
+
+        self.assertFalse(Withdrawal.objects.exists())
+        self.assertFalse(TelegramOutbox.objects.exists())
+        self.assertEqual(partner_balance(self.partner)["payable"], Decimal("300.00"))
+
+    def test_outer_transaction_rollback_removes_request_and_owner_notification(self):
+        with self.assertRaises(RuntimeError):
+            with transaction.atomic():
+                self.withdraw()
+                self.assertEqual(TelegramOutbox.objects.count(), 1)
+                raise RuntimeError("request processing failed")
+
+        self.assertFalse(Withdrawal.objects.exists())
+        self.assertFalse(TelegramOutbox.objects.exists())
+        self.assertEqual(partner_balance(self.partner)["payable"], Decimal("300.00"))
+
+
 class MoneyBotTests(PartnerFixtures, TestCase):
     def setUp(self):
         super().setUp()
@@ -236,7 +362,7 @@ class MoneyBotTests(PartnerFixtures, TestCase):
 
         self.assertTrue(self.message("/referral"))
 
-        notice = TelegramOutbox.objects.get()
+        notice = TelegramOutbox.objects.get(chat_id=self.partner.chat_id)
         self.assertEqual(notice.chat_id, self.partner.chat_id)
         self.assertEqual(notice.method, TelegramOutbox.Method.SEND_MESSAGE)
         self.assertEqual(notice.payload["parse_mode"], "HTML")
@@ -315,6 +441,9 @@ class MoneyBotTests(PartnerFixtures, TestCase):
         self.assertEqual([b["text"] for b in buttons], ["Да", "Отменить"])
         self.callback("yes", token); self.callback("yes", token)
         self.assertEqual(Withdrawal.objects.count(), 1)
+        self.assertEqual(TelegramOutbox.objects.filter(
+            idempotency_key=f"who-update-withdrawal-created:{Withdrawal.objects.get().pk}",
+        ).count(), 1)
         self.assertEqual(partner_balance(self.partner)["payable"], Decimal("179.50"))
         self.assertFalse(Draft.objects.get(partner=self.partner).active)
         for notice in TelegramOutbox.objects.filter(idempotency_key__startswith="money:callback:").order_by("id")[1:]:

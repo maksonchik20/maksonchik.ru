@@ -1,4 +1,5 @@
 """Accrual ledger for direct referrals; payment retries cannot accrue twice."""
+import html
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
@@ -6,9 +7,12 @@ from django.db.models import Count, DecimalField, OuterRef, Q, Subquery, Sum, Va
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from .models import (UserTg, WhoUpdatePaymentOrder, WhoUpdatePartnerSettings,
+from env import OWNER_CHAT_ID
+
+from .models import (UserTg, TelegramOutbox, WhoUpdatePaymentOrder, WhoUpdatePartnerSettings,
                      WhoUpdatePartnerProfile, WhoUpdatePartnerCommission as Commission,
                      WhoUpdatePartnerWithdrawal as Withdrawal)
+from .outbox import enqueue_outbox
 
 
 def program_settings():
@@ -78,7 +82,40 @@ def create_withdrawal(user, amount, *, request_key):
     available = partner_balance(user)["payable"]
     if amount > available:
         raise ValueError(f"Недостаточно средств. Доступно к выводу: {available:.2f} ₽.")
-    return Withdrawal.objects.create(partner=user, amount=amount, request_key=request_key)
+    withdrawal = Withdrawal.objects.create(partner=user, amount=amount, request_key=request_key)
+    enqueue_withdrawal_owner_notification(withdrawal)
+    return withdrawal
+
+
+def enqueue_withdrawal_owner_notification(withdrawal):
+    partner = withdrawal.partner
+    name = html.escape(partner.first_name or "Не указано")
+    username = "@" + html.escape(partner.username) if partner.username else "не указан"
+    amount = f"{withdrawal.amount:.2f}".replace(".", ",")
+    item = enqueue_outbox(
+        chat_id=OWNER_CHAT_ID,
+        method=TelegramOutbox.Method.SEND_MESSAGE,
+        payload={
+            "text": ("💸 <b>Новая заявка на вывод WhoUpdate</b>\n\n"
+                     f"Заявка: №{withdrawal.pk}\n"
+                     f"Пользователь: {name}\n"
+                     f"Username: {username}\n"
+                     f"Telegram ID: <code>{partner.user_id}</code>\n"
+                     f"Сумма: <b>{amount} ₽</b>\n\n"
+                     "Сумма зарезервирована. Заявка ожидает обработки в админке; выплата не выполнена."),
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+            "reply_markup": {"inline_keyboard": [[{
+                "text": "Открыть заявку",
+                "url": f"https://maksonchik.ru/admin/webhook_tg/whoupdatepartnerwithdrawal/{withdrawal.pk}/change/",
+            }]]},
+        },
+        idempotency_key=f"who-update-withdrawal-created:{withdrawal.pk}",
+    )
+    if item is None:
+        # Do not commit a reservation without its durable owner notification.
+        raise RuntimeError("Не удалось поставить уведомление о заявке на вывод в очередь.")
+    return item
 
 
 @transaction.atomic
