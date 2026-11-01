@@ -4,6 +4,7 @@ from django.db import connection
 
 from webhook_tg.metrika_offline import (
     reconcile_submitted_conversions,
+    recover_failed_onboarding_conversions,
     recover_failed_purchase_conversions,
     sync_conversion_queue,
     sync_purchase_conversions,
@@ -17,6 +18,10 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--limit", type=int, default=500)
         parser.add_argument("--status-limit", type=int, default=50)
+        parser.add_argument(
+            "--recover-onboarding-linkage", action="store_true",
+            help="Recheck at most 20 failed onboarding rows and add a missing ClientID only after confirmed LINKAGE_FAILURE",
+        )
 
     def handle(self, *args, **options):
         # A timer and a manual run must not upload the same pending rows at once.
@@ -49,6 +54,8 @@ class Command(BaseCommand):
             limit=options["status_limit"],
         )
         recovered = recover_failed_purchase_conversions(token=token)
+        if options["recover_onboarding_linkage"]:
+            recovered += recover_failed_onboarding_conversions(token=token)
         submitted = upload_pending_conversions(
             token=token,
             limit=options["limit"],

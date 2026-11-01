@@ -135,9 +135,9 @@ class MetrikaOfflineConversionTests(TestCase):
         csv_text = payload.decode("utf-8")
         self.assertEqual(filename, "who-update-yclid.csv")
         self.assertEqual(mime, "text/csv")
-        self.assertIn("Yclid,Target,DateTime,Price,Currency", csv_text)
-        self.assertIn("yclid-test-123,who_update_start", csv_text)
-        self.assertIn("yclid-test-123,who_update_connected", csv_text)
+        self.assertIn("Yclid,ClientId,Target,DateTime,Price,Currency", csv_text)
+        self.assertIn("yclid-test-123,client-test-456,who_update_start", csv_text)
+        self.assertIn("yclid-test-123,client-test-456,who_update_connected", csv_text)
         self.assertFalse(
             WhoUpdateMetrikaConversion.objects.exclude(
                 status=WhoUpdateMetrikaConversion.Status.SUBMITTED,

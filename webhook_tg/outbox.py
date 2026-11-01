@@ -293,6 +293,16 @@ def _record_delivery_result(item: TelegramOutbox, **fieldToValue) -> None:
                 notification_sent=fieldToValue.get("status") == TelegramOutbox.Status.SENT,
                 notification_error=fieldToValue.get("last_error", ""),
             )
+        if updated and fieldToValue.get("status") == TelegramOutbox.Status.SENT:
+            try:
+                # Analytics failure must not roll back the successful delivery
+                # marker and cause an already delivered message to be resent.
+                with transaction.atomic():
+                    from .useful_delivery import record_first_observed_value
+
+                    record_first_observed_value(item, sent_at=fieldToValue.get("sent_at"))
+            except Exception:
+                logger.exception("Could not record useful delivery outbox_id=%s", item.pk)
 
 
 def _cleanup_delivered_history_file(item):

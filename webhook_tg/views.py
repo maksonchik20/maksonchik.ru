@@ -523,6 +523,10 @@ def _handle_business_connection_update(conn: dict) -> None:
     now = timezone.now()
     was_connected = bot_user.business_is_connected
     previous_connection_id = bot_user.business_connection_id
+    had_connection_history = bool(
+        was_connected or previous_connection_id
+        or bot_user.business_connected_at or bot_user.business_disconnected_at
+    )
     connection_id = conn.get("id") or None
     is_enabled = bool(conn.get("is_enabled"))
     is_new_connection = is_enabled and (
@@ -570,7 +574,7 @@ def _handle_business_connection_update(conn: dict) -> None:
             update_fields=update_fields
         )
         if is_new_connection:
-            record_connection(bot_user, connected_at=now)
+            record_connection(bot_user, connected_at=now, had_connection_history=had_connection_history)
             tg_send_message(user_chat_id, BOT_ACTIVATED_TEXT)
             tg_send_message(OWNER_CHAT_ID, _owner_connection_notification(conn, bot_user))
             print(f"business_connection enabled user_chat_id={user_chat_id}")
@@ -1115,7 +1119,11 @@ def _send_deleted_notifications(deleted: dict, business_connection: BusinessConn
         if m and m.file_id and m.file_type and m.file_type != FileType.UNKNOWN:
             _send_file_by_type(business_connection.user_chat_id, m.file_id, m.file_type, caption)
         else:
-            tg_send_message(business_connection.user_chat_id, caption)
+            sent = tg_send_message(business_connection.user_chat_id, caption)
+            if sent and m is not None and m.text:
+                from .useful_delivery import observe_deleted_text_delivery
+
+                observe_deleted_text_delivery(business_connection.user_chat_id)
         notified += 1
 
     if notified and len(msg_ids) > 10:

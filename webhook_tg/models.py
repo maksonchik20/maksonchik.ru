@@ -265,6 +265,55 @@ class WhoUpdateOnboardingFunnel(models.Model):
         return f"{self.tracking_code} → {user}"
 
 
+class WhoUpdateUserAcquisition(models.Model):
+    """Источники пользователя не сбрасываются повторным /start или подключением."""
+
+    user = models.OneToOneField(
+        UserTg, on_delete=models.CASCADE, related_name="acquisition",
+    )
+    first_start_at = models.DateTimeField(blank=True, null=True)
+    first_start_funnel = models.ForeignKey(
+        WhoUpdateOnboardingFunnel, on_delete=models.SET_NULL,
+        related_name="first_start_acquisitions", blank=True, null=True,
+    )
+    acquisition_funnel = models.ForeignKey(
+        WhoUpdateOnboardingFunnel, on_delete=models.SET_NULL,
+        related_name="user_acquisitions", blank=True, null=True,
+    )
+    first_connected_at = models.DateTimeField(
+        blank=True, null=True,
+        help_text="Первое подключение, подтверждённое сохранённой историей; не время последнего переподключения.",
+    )
+    first_connection_funnel = models.ForeignKey(
+        WhoUpdateOnboardingFunnel, on_delete=models.SET_NULL,
+        related_name="first_connection_acquisitions", blank=True, null=True,
+    )
+    has_connection_history = models.BooleanField(default=False, db_default=False)
+
+
+class WhoUpdateTelegramStart(models.Model):
+    """Идемпотентность отдельного update без перезаписи исходного визита."""
+
+    update_id = models.BigIntegerField(unique=True)
+    user = models.ForeignKey(UserTg, on_delete=models.CASCADE)
+    funnel = models.ForeignKey(WhoUpdateOnboardingFunnel, on_delete=models.CASCADE)
+    started_at = models.DateTimeField()
+
+
+class WhoUpdateFirstObservedValue(models.Model):
+    """Первый наблюдаемый полезный ответ после включения измерения, не за всю историю."""
+
+    user = models.OneToOneField(UserTg, on_delete=models.CASCADE, related_name="first_observed_value")
+    event_type = models.CharField(max_length=16, choices=[
+        ("edit", "Доставлено уведомление о правке"),
+        ("delete_text", "Доставлена текстовая копия удаления"),
+    ])
+    observed_at = models.DateTimeField(db_index=True)
+    outbox = models.ForeignKey(
+        "TelegramOutbox", on_delete=models.SET_NULL, blank=True, null=True,
+    )
+
+
 class WhoUpdateMetrikaConversion(models.Model):
     """Надёжная очередь офлайн-конверсий для Яндекс Метрики."""
 

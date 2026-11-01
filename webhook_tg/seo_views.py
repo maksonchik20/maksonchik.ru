@@ -8,6 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from main.sitemap_urls import render_sitemap_xml, render_who_update_sitemap_xml
 from .models import WhoUpdateOnboardingFunnel
 from .onboarding_analytics import capture_landing_view, tracked_telegram_url
+from .subscriptions import PLAN_CONFIG, TRIAL_DAYS
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,6 +23,21 @@ def _is_who_update_host(request: HttpRequest) -> bool:
     }
 
 
+def _subscription_offer_context() -> dict:
+    return {
+        "trial_days": TRIAL_DAYS,
+        "monthly_price": PLAN_CONFIG["month"]["amount"],
+        "subscription_plans": [
+            {
+                "label": fieldToValue["label"],
+                "amount": fieldToValue["amount"],
+                "price": format(fieldToValue["amount"], "f"),
+            }
+            for fieldToValue in PLAN_CONFIG.values()
+        ],
+    }
+
+
 def who_update_landing(request: HttpRequest):
     user_agent = str(request.headers.get("User-Agent") or "").lower()
     is_crawler = any(marker in user_agent for marker in ("bot", "crawler", "spider", "slurp"))
@@ -30,6 +46,7 @@ def who_update_landing(request: HttpRequest):
         request,
         "webhook_tg/landing.html",
         {
+            **_subscription_offer_context(),
             "canonical_url": f"{WHO_UPDATE_ORIGIN}/",
             "landing_url": f"{WHO_UPDATE_ORIGIN}/",
             "main_site_url": "https://maksonchik.ru/",
@@ -47,6 +64,7 @@ def who_update_landing(request: HttpRequest):
 
 def _legal_context(document_type: str) -> dict:
     return {
+        **_subscription_offer_context(),
         "document_type": document_type,
         "landing_url": f"{WHO_UPDATE_ORIGIN}/",
         "main_site_url": "https://maksonchik.ru/",

@@ -31,9 +31,9 @@ class PriceUpdateTests(TestCase):
         self.assertContains(response,'3 месяца — 249 ₽')
         self.assertContains(response,'1 год — 800 ₽')
         landing=self.client.get('/',HTTP_HOST='who-update.ru')
-        self.assertContains(landing,'"price": "129"')
-        self.assertContains(landing,'"price": "249"')
-        self.assertContains(landing,'"price": "800"')
+        self.assertContains(landing,'"price": "129.00"')
+        self.assertContains(landing,'"price": "249.00"')
+        self.assertContains(landing,'"price": "800.00"')
 
     def test_new_discount_amounts_and_double_duration(self):
         for prize,month,quarter,year in [('discount10','116.10','224.10','720.00'),('discount15','109.65','211.65','680.00'),('discount20','103.20','199.20','640.00'),('double','129.00','249.00','800.00')]:

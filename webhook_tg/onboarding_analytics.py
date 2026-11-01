@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from django.db import transaction
+from django.db.models import Max, Q
 from django.utils import timezone
 
 from main.context_processors import site
+from .acquisition import attribution_funnel, ensure_acquisition, is_first_connection_funnel
 from .metrics import ONBOARDING_EVENTS, observe_metric
-from .models import UserTg, WhoUpdateOnboardingFunnel
+from .models import UserTg, WhoUpdateOnboardingFunnel, WhoUpdateTelegramStart
 
 
 TRACKING_PREFIX = "trk_"
@@ -55,14 +57,23 @@ def register_telegram_start(
     update_id: int,
     started_at,
 ) -> WhoUpdateOnboardingFunnel:
+    bot_user = UserTg.objects.select_for_update().get(pk=bot_user.pk)
+    receipt = WhoUpdateTelegramStart.objects.select_related("funnel").filter(update_id=update_id).first()
+    if receipt is not None:
+        if receipt.user_id != bot_user.pk:
+            raise ValueError("Telegram update belongs to a different user")
+        return receipt.funnel
     existing = (
         WhoUpdateOnboardingFunnel.objects.select_for_update()
         .filter(start_update_id=update_id)
         .first()
     )
     if existing is not None:
+        if existing.user_id != bot_user.pk:
+            raise ValueError("Telegram update belongs to a different user")
         return existing
 
+    acquisition = ensure_acquisition(bot_user, before=started_at)
     payload = str(start_payload or "").strip()
     funnel = None
     if payload.startswith(TRACKING_PREFIX):
@@ -70,9 +81,19 @@ def register_telegram_start(
         funnel = (
             WhoUpdateOnboardingFunnel.objects.select_for_update()
             .filter(tracking_code=tracking_code)
-            .filter(user__isnull=True)
             .first()
         )
+        if funnel is not None and funnel.user_id not in (None, bot_user.pk):
+            # A forwarded deep link must not transfer somebody else's visit.
+            funnel = None
+
+    if funnel is not None and funnel.user_id == bot_user.pk:
+        # Keep the original visit/start timestamp and update ID. Record this
+        # command independently so a retry is still idempotent.
+        WhoUpdateTelegramStart.objects.create(
+            user=bot_user, funnel=funnel, update_id=update_id, started_at=started_at,
+        )
+        return funnel
 
     if funnel is None:
         source = "referral" if payload.lower().startswith("ref_") else "telegram"
@@ -82,6 +103,24 @@ def register_telegram_start(
     funnel.telegram_started_at = started_at
     funnel.start_update_id = update_id
     funnel.save(update_fields=["user", "telegram_started_at", "start_update_id", "updated_at"])
+    WhoUpdateTelegramStart.objects.create(
+        user=bot_user, funnel=funnel, update_id=update_id, started_at=started_at,
+    )
+    fields = []
+    if acquisition.first_start_funnel_id is None:
+        acquisition.first_start_funnel = funnel
+        acquisition.first_start_at = started_at
+        fields.extend(["first_start_funnel", "first_start_at"])
+    if (
+        acquisition.acquisition_funnel_id is None and funnel.landing_viewed_at
+        and funnel.landing_viewed_at <= started_at
+        and (funnel.yclid or funnel.metrika_client_id)
+        and funnel.landing_path != "/bot/checkout/"
+    ):
+        acquisition.acquisition_funnel = funnel
+        fields.append("acquisition_funnel")
+    if fields:
+        acquisition.save(update_fields=fields)
     observe_metric(
         ONBOARDING_EVENTS,
         1,
@@ -148,8 +187,13 @@ def record_reminder_sent(
 
 
 @transaction.atomic
-def record_connection(bot_user: UserTg, *, connected_at=None):
+def record_connection(bot_user: UserTg, *, connected_at=None, had_connection_history=False):
     connected_at = connected_at or timezone.now()
+    bot_user = UserTg.objects.select_for_update().get(pk=bot_user.pk)
+    acquisition = ensure_acquisition(bot_user, before=connected_at)
+    if had_connection_history and not acquisition.has_connection_history:
+        acquisition.has_connection_history = True
+        acquisition.save(update_fields=["has_connection_history"])
     funnel = (
         WhoUpdateOnboardingFunnel.objects.select_for_update()
         .filter(
@@ -167,9 +211,21 @@ def record_connection(bot_user: UserTg, *, connected_at=None):
             telegram_started_at=bot_user.last_start_at,
         )
 
-    if funnel.second_reminder_sent_at:
+    first_reminder_at = funnel.first_reminder_sent_at
+    second_reminder_at = funnel.second_reminder_sent_at
+    if not acquisition.has_connection_history:
+        # A repeated /start is not a new person and cannot erase reminder
+        # exposure. This describes sequence, not causal reminder uplift.
+        fieldToLatestSentAt = WhoUpdateOnboardingFunnel.objects.filter(user=bot_user).aggregate(
+            first=Max("first_reminder_sent_at", filter=Q(first_reminder_sent_at__lte=connected_at)),
+            second=Max("second_reminder_sent_at", filter=Q(second_reminder_sent_at__lte=connected_at)),
+        )
+        first_reminder_at = fieldToLatestSentAt["first"]
+        second_reminder_at = fieldToLatestSentAt["second"]
+
+    if second_reminder_at and second_reminder_at <= connected_at:
         stage = WhoUpdateOnboardingFunnel.ConnectionStage.AFTER_SECOND_REMINDER
-    elif funnel.first_reminder_sent_at:
+    elif first_reminder_at and first_reminder_at <= connected_at:
         stage = WhoUpdateOnboardingFunnel.ConnectionStage.AFTER_FIRST_REMINDER
     elif funnel.telegram_started_at:
         stage = WhoUpdateOnboardingFunnel.ConnectionStage.IMMEDIATE
@@ -179,5 +235,13 @@ def record_connection(bot_user: UserTg, *, connected_at=None):
     funnel.connected_at = connected_at
     funnel.connection_stage = stage
     funnel.save(update_fields=["connected_at", "connection_stage", "updated_at"])
+    if not acquisition.has_connection_history:
+        acquisition.first_connected_at = connected_at
+        acquisition.first_connection_funnel = funnel
+        acquisition.has_connection_history = True
+        acquisition.save(update_fields=[
+            "first_connected_at", "first_connection_funnel", "has_connection_history",
+        ])
+        observe_metric(ONBOARDING_EVENTS, 1, {"event": "first_connected", "stage": stage})
     observe_metric(ONBOARDING_EVENTS, 1, {"event": "connected", "stage": stage})
     return funnel

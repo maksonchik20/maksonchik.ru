@@ -17,6 +17,7 @@ from .models import (
     WhoUpdateOnboardingFunnel,
     WhoUpdatePaymentOrder,
 )
+from .onboarding_analytics import attribution_funnel
 
 
 UPLOAD_URL = (
@@ -63,22 +64,24 @@ def sync_conversion_queue(
         ),
     )
     created_count = 0
-    identifiers = Q(yclid__gt="") | Q(metrika_client_id__gt="")
-
     for event_type, timestamp_field, target in specs:
         funnels = (
             WhoUpdateOnboardingFunnel.objects.filter(
-                identifiers,
                 **{
                     f"{timestamp_field}__isnull": False,
                     f"{timestamp_field}__gte": earliest,
+                    f"{timestamp_field}__lte": now,
                 },
             )
-            .only("id", "yclid", "metrika_client_id", timestamp_field)
+            .select_related("user__acquisition__acquisition_funnel")
             .order_by(timestamp_field, "id")
         )
         for funnel in funnels.iterator():
-            identifier = _identifier_for(funnel)
+            occurred_at = getattr(funnel, timestamp_field)
+            source = attribution_funnel(funnel, occurred_at=occurred_at)
+            if source is None:
+                continue
+            identifier = _identifier_for(source)
             if identifier is None:
                 continue
             identifier_type, identifier_value = identifier
@@ -87,10 +90,11 @@ def sync_conversion_queue(
                 event_type=event_type,
                 defaults={
                     "target": target,
-                    "counter_id": counter_id,
-                    "occurred_at": getattr(funnel, timestamp_field),
+                    "counter_id": source.metrika_counter_id or counter_id,
+                    "occurred_at": occurred_at,
                     "identifier_type": identifier_type,
                     "identifier": identifier_value,
+                    "client_id": source.metrika_client_id,
                     "next_attempt_at": now,
                 },
             )
@@ -99,9 +103,11 @@ def sync_conversion_queue(
                 fieldToValue = {}
                 for field, value in (
                     ("target", target),
-                    ("occurred_at", getattr(funnel, timestamp_field)),
+                    ("occurred_at", occurred_at),
                     ("identifier_type", identifier_type),
                     ("identifier", identifier_value),
+                    ("client_id", source.metrika_client_id),
+                    ("counter_id", source.metrika_counter_id or conversion.counter_id),
                 ):
                     if getattr(conversion, field) != value:
                         fieldToValue[field] = value
@@ -313,6 +319,115 @@ def recover_failed_purchase_conversions(*, token: str, now=None, limit: int = 20
     return recovered
 
 
+@transaction.atomic
+def recover_onboarding_linkage(conversion_id: int, *, confirmed_upload_id: int, now=None) -> bool:
+    """Enrich an unlinked onboarding event only after a confirmed failed file.
+
+    Keep its original timestamp, primary identifier and counter. A submitted,
+    processed, ambiguous, expired or already enriched payload is never replayed.
+    """
+    now = now or timezone.now()
+    conversion = WhoUpdateMetrikaConversion.objects.select_for_update(of=("self",)).select_related(
+        "funnel__user__acquisition__acquisition_funnel",
+    ).get(pk=conversion_id)
+    source = attribution_funnel(conversion.funnel, occurred_at=conversion.occurred_at)
+    if not (
+        conversion.event_type in (
+            WhoUpdateMetrikaConversion.EventType.START,
+            WhoUpdateMetrikaConversion.EventType.CONNECTED,
+        )
+        and conversion.payment_order_id is None
+        and conversion.status == WhoUpdateMetrikaConversion.Status.FAILED
+        and conversion.api_status == "LINKAGE_FAILURE"
+        and conversion.api_upload_id == confirmed_upload_id
+        and conversion.identifier_type == WhoUpdateMetrikaConversion.IdentifierType.YCLID
+        and source is not None
+        and conversion.identifier == source.yclid
+        and not conversion.client_id and source.metrika_client_id
+        and source.landing_viewed_at
+        and now - timedelta(days=20) <= source.landing_viewed_at <= conversion.occurred_at <= now
+        and (not source.metrika_counter_id or source.metrika_counter_id == conversion.counter_id)
+    ):
+        return False
+    conversion.upload_history = [*conversion.upload_history, {
+        "id": confirmed_upload_id,
+        "status": "LINKAGE_FAILURE",
+        "action": "add_client_id",
+        "at": now.isoformat(),
+    }]
+    conversion.client_id = source.metrika_client_id
+    conversion.status = WhoUpdateMetrikaConversion.Status.PENDING
+    conversion.next_attempt_at = now
+    conversion.api_upload_id = None
+    conversion.api_status = ""
+    conversion.processed_at = None
+    conversion.last_error = (
+        f"Confirmed LINKAGE_FAILURE; previous upload={confirmed_upload_id}; added ClientID"
+    )
+    conversion.save(update_fields=[
+        "client_id", "status", "next_attempt_at", "api_upload_id", "api_status",
+        "processed_at", "last_error", "upload_history", "updated_at",
+    ])
+    return True
+
+
+def recover_failed_onboarding_conversions(*, token: str, now=None, limit: int = 20) -> int:
+    """Explicit, bounded recovery; no automatic replay of old or mixed-success files."""
+    now = now or timezone.now()
+    failed = WhoUpdateMetrikaConversion.objects.filter(
+        event_type__in=(
+            WhoUpdateMetrikaConversion.EventType.START,
+            WhoUpdateMetrikaConversion.EventType.CONNECTED,
+        ),
+        status=WhoUpdateMetrikaConversion.Status.FAILED,
+        api_status="LINKAGE_FAILURE",
+        api_upload_id__isnull=False,
+        identifier_type=WhoUpdateMetrikaConversion.IdentifierType.YCLID,
+        client_id="",
+        occurred_at__gte=now - timedelta(days=20),
+        occurred_at__lte=now,
+    ).select_related(
+        "funnel__user__acquisition__acquisition_funnel",
+    ).order_by("occurred_at", "id")
+    counterUploadToStatus = {}
+    recovered = 0
+    checked = 0
+    for conversion in failed.iterator():
+        source = attribution_funnel(conversion.funnel, occurred_at=conversion.occurred_at)
+        if not (
+            source is not None and source.metrika_client_id
+            and source.yclid == conversion.identifier
+            and source.landing_viewed_at
+            and now - timedelta(days=20) <= source.landing_viewed_at <= conversion.occurred_at
+            and (not source.metrika_counter_id or source.metrika_counter_id == conversion.counter_id)
+        ):
+            continue
+        if checked >= max(limit, 0):
+            break
+        checked += 1
+        counter_upload = (conversion.counter_id, conversion.api_upload_id)
+        if counter_upload not in counterUploadToStatus:
+            counterUploadToStatus[counter_upload] = ""
+            try:
+                response = METRIKA_SESSION.get(
+                    UPLOAD_STATUS_URL.format(
+                        counter_id=conversion.counter_id, upload_id=conversion.api_upload_id,
+                    ),
+                    headers={"Authorization": f"OAuth {token}"},
+                    timeout=(3, 15),
+                )
+                response.raise_for_status()
+                counterUploadToStatus[counter_upload] = str(response.json()["uploading"]["status"]).upper()
+            except (requests.RequestException, KeyError, TypeError, ValueError):
+                continue
+        if counterUploadToStatus[counter_upload] != "LINKAGE_FAILURE":
+            continue
+        recovered += int(recover_onboarding_linkage(
+            conversion.pk, confirmed_upload_id=conversion.api_upload_id, now=now,
+        ))
+    return recovered
+
+
 def _csv_payload(conversions: list[WhoUpdateMetrikaConversion]) -> tuple[str, bytes]:
     identifier_type = conversions[0].identifier_type
     identifier_header = (
@@ -392,15 +507,23 @@ def upload_pending_conversions(
     if not conversions:
         return 0
 
-    counterIdentifierPurchaseToConversions = defaultdict(list)
+    counterIdentifierFormatPurchaseToConversions = defaultdict(list)
     for conversion in conversions:
         # Upload status describes the whole file. Keep purchases isolated so a
         # matched /start cannot conceal a failed payment in the same batch.
         purchase_id = conversion.pk if conversion.event_type == WhoUpdateMetrikaConversion.EventType.PURCHASE else None
-        counterIdentifierPurchaseToConversions[(conversion.counter_id, conversion.identifier_type, purchase_id)].append(conversion)
+        # A legacy attempted YCLID-only row must not gain a new ClientId
+        # column simply because a fresh paired-ID event joins its retry batch.
+        paired_identifiers = (
+            conversion.identifier_type == WhoUpdateMetrikaConversion.IdentifierType.YCLID
+            and bool(conversion.client_id)
+        )
+        counterIdentifierFormatPurchaseToConversions[(
+            conversion.counter_id, conversion.identifier_type, paired_identifiers, purchase_id,
+        )].append(conversion)
 
     submitted_count = 0
-    for (stored_counter_id, identifier_type, _), batch in counterIdentifierPurchaseToConversions.items():
+    for (stored_counter_id, identifier_type, _, _), batch in counterIdentifierFormatPurchaseToConversions.items():
         attempt = _begin_upload_attempt(
             batch, counter_id=stored_counter_id, identifier_type=identifier_type, now=now,
         )
