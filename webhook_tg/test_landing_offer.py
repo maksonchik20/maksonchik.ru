@@ -10,6 +10,16 @@ from .subscriptions import PLAN_CONFIG, TRIAL_DAYS
 
 
 class WhoUpdateLandingOfferTest(TestCase):
+    def test_detailed_pricing_follows_faq_and_precedes_final_signup(self):
+        response = self.client.get("/", HTTP_HOST="who-update.ru")
+        content = response.content.decode()
+
+        self.assertContains(response, 'id="pricing"', count=1)
+        self.assertLess(content.index('id="features"'), content.index('id="how"'))
+        self.assertLess(content.index('id="how"'), content.index('id="faq"'))
+        self.assertLess(content.index('id="faq"'), content.index('id="pricing"'))
+        self.assertLess(content.index('id="pricing"'), content.index('class="final-cta container"'))
+
     def test_offer_is_visible_near_first_button_and_uses_current_plans(self):
         response = self.client.get("/", HTTP_HOST="who-update.ru")
         content = response.content.decode()
