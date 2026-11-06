@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from .metrika_offline import (
     _csv_payload,
+    reconcile_failed_conversion_statuses,
     recover_failed_onboarding_conversions,
     recover_onboarding_linkage,
     sync_conversion_queue,
@@ -182,6 +183,68 @@ class OnboardingMetrikaRepairTests(TestCase):
 
         self.assertEqual(self.sync(), 0)
 
+    def test_expired_acquisition_does_not_queue_recent_start_or_connection(self):
+        self.source.landing_viewed_at = self.now - timedelta(days=30)
+        self.source.telegram_started_at = self.source.landing_viewed_at + timedelta(minutes=1)
+        self.source.save(update_fields=["landing_viewed_at", "telegram_started_at"])
+        WhoUpdateOnboardingFunnel.objects.create(
+            user=self.user, utm_source="telegram",
+            telegram_started_at=self.now - timedelta(hours=1),
+            connected_at=self.now - timedelta(minutes=30),
+        )
+
+        self.assertEqual(self.sync(), 0)
+        self.assertEqual(WhoUpdateMetrikaConversion.objects.count(), 0)
+
+    def test_own_visit_window_is_measured_from_upload_time(self):
+        # The visit was only 19 days old at /start, but is expired at upload.
+        self.source.landing_viewed_at = self.now - timedelta(days=21, seconds=1)
+        self.source.save(update_fields=["landing_viewed_at"])
+
+        self.assertEqual(self.sync(), 0)
+
+        self.source.landing_viewed_at = self.now - timedelta(days=21)
+        self.source.save(update_fields=["landing_viewed_at"])
+        self.assertEqual(self.sync(), 1)
+        self.assertEqual(self.sync(), 0)
+
+    def test_fresh_own_visit_is_eligible_when_first_acquisition_expired(self):
+        self.source.landing_viewed_at = self.now - timedelta(days=30)
+        self.source.telegram_started_at = self.source.landing_viewed_at + timedelta(minutes=1)
+        self.source.save(update_fields=["landing_viewed_at", "telegram_started_at"])
+        attempt = WhoUpdateOnboardingFunnel.objects.create(
+            user=self.user, yclid="fresh-click", metrika_client_id="fresh-client",
+            metrika_counter_id=self.current_counter,
+            landing_viewed_at=self.now - timedelta(hours=2),
+            telegram_started_at=self.now - timedelta(hours=1),
+            connected_at=self.now - timedelta(minutes=30),
+        )
+
+        self.assertEqual(self.sync(), 2)
+
+        for conversion in WhoUpdateMetrikaConversion.objects.all():
+            self.assertEqual(conversion.funnel_id, attempt.pk)
+            self.assertEqual(conversion.identifier, "fresh-click")
+            self.assertEqual(conversion.client_id, "fresh-client")
+            self.assertEqual(conversion.counter_id, self.current_counter)
+
+    def test_expired_source_does_not_rewrite_an_attempted_payload(self):
+        conversion = self.legacy_failure(
+            status=WhoUpdateMetrikaConversion.Status.PENDING,
+            api_upload_id=None, api_status="", next_attempt_at=self.now,
+        )
+        original_payload = _csv_payload([conversion])
+        self.source.landing_viewed_at = self.now - timedelta(days=30)
+        self.source.metrika_client_id = "late-client"
+        self.source.save(update_fields=["landing_viewed_at", "metrika_client_id"])
+
+        self.assertEqual(self.sync(), 0)
+
+        conversion.refresh_from_db()
+        self.assertEqual(_csv_payload([conversion]), original_payload)
+        self.assertEqual(conversion.status, WhoUpdateMetrikaConversion.Status.PENDING)
+        self.assertEqual(conversion.attempts, 1)
+
     def test_legacy_timeout_retry_is_not_merged_with_paired_id_payload(self):
         legacy = self.legacy_failure(
             status=WhoUpdateMetrikaConversion.Status.PENDING,
@@ -274,6 +337,268 @@ class OnboardingMetrikaRepairTests(TestCase):
         self.assertEqual(recover_failed_onboarding_conversions(token="test", now=self.now, limit=1), 1)
         self.assertEqual(WhoUpdateMetrikaConversion.objects.filter(status="failed").count(), 1)
         self.assertEqual(self.get.call_count, 1)
+
+    def test_failed_upload_later_processed_updates_status_without_reuploading(self):
+        first = self.legacy_failure(next_attempt_at=self.now, last_error="linkage failed")
+        second = self.legacy_failure(
+            event_type=WhoUpdateMetrikaConversion.EventType.CONNECTED,
+            target="who_update_connected", occurred_at=self.now - timedelta(hours=1),
+            next_attempt_at=self.now, last_error="linkage failed",
+        )
+        original_payload = _csv_payload([first, second])
+        self.get.side_effect = None
+        self.get.return_value = self.response("PROCESSED")
+
+        self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now), 2)
+        self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now), 0)
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(_csv_payload([first, second]), original_payload)
+        for conversion in (first, second):
+            self.assertEqual(conversion.status, WhoUpdateMetrikaConversion.Status.PROCESSED)
+            self.assertEqual(conversion.api_status, "PROCESSED")
+            self.assertEqual(conversion.api_upload_id, 88001)
+            self.assertEqual(conversion.processed_at, self.now)
+            self.assertEqual(conversion.last_error, "")
+            self.assertEqual(conversion.attempts, 1)
+            self.assertEqual(conversion.upload_history, [])
+        self.get.assert_called_once()
+        self.post.assert_not_called()
+
+    def test_failed_status_rechecks_are_throttled_for_six_hours(self):
+        conversion = self.legacy_failure(next_attempt_at=self.now, last_error="linkage failed")
+        self.get.side_effect = None
+        self.get.return_value = self.response("LINKAGE_FAILURE")
+
+        self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now), 0)
+        self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now + timedelta(hours=5)), 0)
+
+        self.get.assert_called_once()
+        conversion.refresh_from_db()
+        self.assertEqual(conversion.status, WhoUpdateMetrikaConversion.Status.FAILED)
+        self.assertEqual(conversion.api_status, "LINKAGE_FAILURE")
+        self.assertEqual(conversion.last_error, "linkage failed")
+        self.assertEqual(conversion.next_attempt_at, self.now + timedelta(hours=6))
+        self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now + timedelta(hours=6)), 0)
+        self.assertEqual(self.get.call_count, 2)
+        self.post.assert_not_called()
+
+    def test_failed_status_timeout_preserves_failure_and_delays_next_check(self):
+        conversion = self.legacy_failure(next_attempt_at=self.now, last_error="linkage failed")
+        self.get.side_effect = requests.Timeout("unknown")
+
+        self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now), 0)
+        self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now), 0)
+
+        conversion.refresh_from_db()
+        self.assertEqual(conversion.status, WhoUpdateMetrikaConversion.Status.FAILED)
+        self.assertEqual(conversion.api_status, "LINKAGE_FAILURE")
+        self.assertEqual(conversion.api_upload_id, 88001)
+        self.assertEqual(conversion.last_error, "linkage failed")
+        self.assertEqual(conversion.attempts, 1)
+        self.assertEqual(conversion.next_attempt_at, self.now + timedelta(hours=6))
+        self.get.assert_called_once()
+        self.post.assert_not_called()
+
+    def test_failed_status_check_skips_ineligible_rows(self):
+        cases = (
+            ("expired", {"occurred_at": self.now - timedelta(days=20, seconds=1)}),
+            ("future", {"occurred_at": self.now + timedelta(seconds=1)}),
+            ("not_due", {"next_attempt_at": self.now + timedelta(seconds=1)}),
+            ("no_upload", {"api_upload_id": None}),
+            ("submitted", {"status": WhoUpdateMetrikaConversion.Status.SUBMITTED}),
+            ("processed", {"status": WhoUpdateMetrikaConversion.Status.PROCESSED}),
+            ("pending", {"status": WhoUpdateMetrikaConversion.Status.PENDING}),
+            ("unknown_failure", {"api_status": "UNKNOWN"}),
+        )
+        for label, fieldToOverride in cases:
+            with self.subTest(row=label):
+                conversion = self.legacy_failure(**{"next_attempt_at": self.now, **fieldToOverride})
+                self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now), 0)
+                conversion.delete()
+        self.get.assert_not_called()
+        self.post.assert_not_called()
+
+    def test_failed_status_check_is_bounded_and_scoped_to_counter_and_upload(self):
+        first = self.legacy_failure(next_attempt_at=self.now)
+        second = self.legacy_failure(
+            event_type=WhoUpdateMetrikaConversion.EventType.CONNECTED,
+            target="who_update_connected", counter_id=self.current_counter,
+            next_attempt_at=self.now,
+        )
+        attempt = WhoUpdateOnboardingFunnel.objects.create(user=self.user)
+        third = self.legacy_failure(funnel=attempt, api_upload_id=88002, next_attempt_at=self.now)
+        self.get.side_effect = lambda url, **fieldToArgument: self.response("PROCESSED", int(url.rsplit("/", 1)[1]))
+
+        self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now, limit=1), 1)
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        third.refresh_from_db()
+        self.assertEqual(first.status, WhoUpdateMetrikaConversion.Status.PROCESSED)
+        self.assertEqual(second.status, WhoUpdateMetrikaConversion.Status.FAILED)
+        self.assertEqual(third.status, WhoUpdateMetrikaConversion.Status.FAILED)
+        self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now, limit=1), 1)
+        self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now, limit=1), 1)
+        self.assertEqual(self.get.call_count, 3)
+        self.assertEqual(
+            {call.args[0] for call in self.get.call_args_list},
+            {
+                f"https://api-metrika.yandex.net/management/v1/counter/{self.old_counter}/offline_conversions/uploading/88001",
+                f"https://api-metrika.yandex.net/management/v1/counter/{self.old_counter}/offline_conversions/uploading/88002",
+                f"https://api-metrika.yandex.net/management/v1/counter/{self.current_counter}/offline_conversions/uploading/88001",
+            },
+        )
+        self.post.assert_not_called()
+
+    def test_failed_status_check_does_not_apply_stale_response_after_concurrent_change(self):
+        conversion = self.legacy_failure(next_attempt_at=self.now)
+        cases = (
+            ("recovered", {"status": WhoUpdateMetrikaConversion.Status.PENDING, "api_upload_id": None}),
+            ("different_counter", {"counter_id": self.current_counter}),
+            ("different_upload", {"api_upload_id": 88002}),
+            ("different_status", {"api_status": "MATCHED"}),
+            ("different_check", {"next_attempt_at": self.now + timedelta(hours=7)}),
+        )
+        for label, fieldToValue in cases:
+            with self.subTest(change=label):
+                WhoUpdateMetrikaConversion.objects.filter(pk=conversion.pk).update(
+                    status=WhoUpdateMetrikaConversion.Status.FAILED, api_status="LINKAGE_FAILURE",
+                    counter_id=self.old_counter, api_upload_id=88001, next_attempt_at=self.now,
+                )
+
+                def concurrent_change(*args, **fieldToArgument):
+                    WhoUpdateMetrikaConversion.objects.filter(pk=conversion.pk).update(**fieldToValue)
+                    return self.response("PROCESSED")
+
+                self.get.side_effect = concurrent_change
+                self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now), 0)
+                conversion.refresh_from_db()
+                self.assertNotEqual(conversion.status, WhoUpdateMetrikaConversion.Status.PROCESSED)
+                for field, value in fieldToValue.items():
+                    self.assertEqual(getattr(conversion, field), value)
+        self.post.assert_not_called()
+
+    def test_failed_status_backoff_allows_next_upload_under_limit(self):
+        first = self.legacy_failure(next_attempt_at=self.now)
+        second = self.legacy_failure(
+            event_type=WhoUpdateMetrikaConversion.EventType.CONNECTED,
+            target="who_update_connected", api_upload_id=88002, next_attempt_at=self.now,
+        )
+        self.get.side_effect = [self.response("LINKAGE_FAILURE"), self.response("PROCESSED", 88002)]
+
+        self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now, limit=1), 0)
+        self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now, limit=1), 1)
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.status, WhoUpdateMetrikaConversion.Status.FAILED)
+        self.assertEqual(first.next_attempt_at, self.now + timedelta(hours=6))
+        self.assertEqual(second.status, WhoUpdateMetrikaConversion.Status.PROCESSED)
+        self.assertEqual(self.get.call_count, 2)
+        self.post.assert_not_called()
+
+    def test_failed_status_check_rejects_other_upload_or_ambiguous_remote_status(self):
+        conversion = self.legacy_failure(next_attempt_at=self.now)
+        self.get.side_effect = None
+        for status, upload_id in (("PROCESSED", 88002), ("UPLOADED", 88001), ("MATCHED", 88001)):
+            with self.subTest(status=status, upload_id=upload_id):
+                WhoUpdateMetrikaConversion.objects.filter(pk=conversion.pk).update(next_attempt_at=self.now)
+                self.get.return_value = self.response(status, upload_id)
+                self.assertEqual(reconcile_failed_conversion_statuses(token="test", now=self.now), 0)
+                conversion.refresh_from_db()
+                self.assertEqual(conversion.status, WhoUpdateMetrikaConversion.Status.FAILED)
+                self.assertEqual(conversion.api_status, "LINKAGE_FAILURE")
+                self.assertEqual(conversion.api_upload_id, 88001)
+        self.post.assert_not_called()
+
+    def test_command_rechecks_failed_uploads_with_separate_limit(self):
+        conversion = self.legacy_failure(next_attempt_at=self.now)
+        self.get.side_effect = None
+        self.get.return_value = self.response("PROCESSED")
+        command_module = "webhook_tg.management.commands.upload_who_update_metrika_conversions"
+        for name in (
+            "sync_conversion_queue", "sync_purchase_conversions",
+            "recover_failed_purchase_conversions", "upload_pending_conversions",
+        ):
+            self.enterContext(patch(f"{command_module}.{name}", return_value=0))
+        submitted_check = self.enterContext(patch(f"{command_module}.reconcile_submitted_conversions", return_value=0))
+
+        with self.settings(YANDEX_METRIKA_OAUTH_TOKEN="test"):
+            call_command("upload_who_update_metrika_conversions", status_limit=0, failed_status_limit=1, stdout=io.StringIO())
+
+        conversion.refresh_from_db()
+        self.assertEqual(conversion.status, WhoUpdateMetrikaConversion.Status.PROCESSED)
+        submitted_check.assert_called_once_with(token="test", limit=0)
+        self.get.assert_called_once()
+        self.post.assert_not_called()
+
+    def audit_recovery_candidates(self):
+        output = io.StringIO()
+        with patch("webhook_tg.management.commands.audit_who_update_metrika.timezone.now", return_value=self.now):
+            call_command("audit_who_update_metrika", stdout=output)
+        fieldToValue = json.loads(output.getvalue())
+        return fieldToValue["onboarding_recovery_candidates_pending_remote_confirmation"]
+
+    def test_read_only_audit_counts_late_client_id_on_acquisition_fallback(self):
+        attempt = WhoUpdateOnboardingFunnel.objects.create(
+            user=self.user, utm_source="telegram",
+            telegram_started_at=self.now - timedelta(hours=1),
+            connected_at=self.now - timedelta(minutes=30),
+        )
+        self.legacy_failure(funnel=attempt, occurred_at=attempt.telegram_started_at)
+        self.legacy_failure(
+            funnel=attempt, event_type=WhoUpdateMetrikaConversion.EventType.CONNECTED,
+            target="who_update_connected", occurred_at=attempt.connected_at,
+        )
+        WhoUpdateOnboardingFunnel.objects.filter(pk=self.source.pk).update(metrika_client_id="")
+        self.assertEqual(self.audit_recovery_candidates(), 0)
+        WhoUpdateOnboardingFunnel.objects.filter(pk=self.source.pk).update(metrika_client_id="late-client")
+        original_conversions = list(WhoUpdateMetrikaConversion.objects.order_by("pk").values())
+
+        self.assertEqual(self.audit_recovery_candidates(), 2)
+
+        self.assertEqual(list(WhoUpdateMetrikaConversion.objects.order_by("pk").values()), original_conversions)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.yclid, "")
+        self.assertEqual(attempt.metrika_client_id, "")
+        self.get.assert_not_called()
+        self.post.assert_not_called()
+
+    def test_read_only_audit_rejects_invalid_and_expired_acquisition_sources(self):
+        attempt = WhoUpdateOnboardingFunnel.objects.create(
+            user=self.user, utm_source="telegram",
+            telegram_started_at=self.now - timedelta(hours=1),
+        )
+        self.legacy_failure(funnel=attempt, occurred_at=attempt.telegram_started_at)
+        other_user = UserTg.objects.create(user_id=9918002, chat_id=9918002)
+        fieldToOriginalValue = {
+            "metrika_counter_id": self.source.metrika_counter_id,
+            "landing_viewed_at": self.source.landing_viewed_at,
+            "telegram_started_at": self.source.telegram_started_at,
+            "yclid": self.source.yclid,
+            "metrika_client_id": self.source.metrika_client_id,
+            "user_id": self.source.user_id,
+        }
+        cases = (
+            ("wrong_counter", {"metrika_counter_id": self.current_counter}),
+            ("expired_visit", {"landing_viewed_at": self.now - timedelta(days=21)}),
+            ("missing_visit", {"landing_viewed_at": None}),
+            ("visit_after_event", {"landing_viewed_at": self.now - timedelta(minutes=30)}),
+            ("start_after_event", {"telegram_started_at": self.now - timedelta(minutes=30)}),
+            ("different_click", {"yclid": "different-click"}),
+            ("missing_client_id", {"metrika_client_id": ""}),
+            ("different_user", {"user_id": other_user.pk}),
+        )
+        for label, fieldToValue in cases:
+            with self.subTest(source=label):
+                WhoUpdateOnboardingFunnel.objects.filter(pk=self.source.pk).update(**fieldToValue)
+                self.assertEqual(self.audit_recovery_candidates(), 0)
+                WhoUpdateOnboardingFunnel.objects.filter(pk=self.source.pk).update(**fieldToOriginalValue)
+        self.assertEqual(self.audit_recovery_candidates(), 1)
+        self.get.assert_not_called()
+        self.post.assert_not_called()
 
     def test_read_only_audit_reconciles_cash_and_missing_identifiers_without_side_effects(self):
         self.source.delete()

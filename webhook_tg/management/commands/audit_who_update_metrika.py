@@ -4,11 +4,12 @@ from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db.models import Count, F, Q
+from django.db.models import Count
 from django.utils import timezone
 
 from webhook_tg.metrika_offline import _purchase_funnel_for
 from webhook_tg.models import WhoUpdateMetrikaConversion, WhoUpdatePaymentOrder
+from webhook_tg.onboarding_analytics import attribution_funnel
 from webhook_tg.subscriptions import OWNER_TELEGRAM_ID
 
 
@@ -80,15 +81,25 @@ class Command(BaseCommand):
         onboardingStatusToCount = dict(
             onboarding.values_list("status").annotate(count=Count("id")).order_by("status")
         )
-        recoverable = onboarding.filter(
-            Q(funnel__metrika_counter_id__isnull=True) | Q(funnel__metrika_counter_id=F("counter_id")),
+        failed = onboarding.filter(
             status="failed", api_status="LINKAGE_FAILURE", api_upload_id__isnull=False,
-            identifier_type="yclid", identifier=F("funnel__yclid"), client_id="",
-            funnel__metrika_client_id__gt="",
-            funnel__landing_viewed_at__gte=now - timedelta(days=20),
-            funnel__landing_viewed_at__lte=F("occurred_at"),
+            payment_order__isnull=True, identifier_type="yclid", client_id="",
+            occurred_at__gte=now - timedelta(days=20),
             occurred_at__lte=now,
-        ).count()
+        ).select_related("funnel__user__acquisition__acquisition_funnel")
+        recoverable = 0
+        for conversion in failed.iterator(chunk_size=200):
+            # Match recovery's real visit, including an acquisition fallback
+            # whose ClientID arrived after the original upload.
+            source = attribution_funnel(conversion.funnel, occurred_at=conversion.occurred_at)
+            if (
+                source is not None and source.metrika_client_id
+                and source.yclid == conversion.identifier
+                and source.landing_viewed_at
+                and now - timedelta(days=20) <= source.landing_viewed_at <= conversion.occurred_at
+                and (not source.metrika_counter_id or source.metrika_counter_id == conversion.counter_id)
+            ):
+                recoverable += 1
         self.stdout.write(json.dumps({
             "since_inclusive": since.isoformat(),
             "until_exclusive": until.isoformat(),

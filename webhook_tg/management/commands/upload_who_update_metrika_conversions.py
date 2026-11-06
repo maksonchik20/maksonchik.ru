@@ -3,6 +3,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
 from webhook_tg.metrika_offline import (
+    reconcile_failed_conversion_statuses,
     reconcile_submitted_conversions,
     recover_failed_onboarding_conversions,
     recover_failed_purchase_conversions,
@@ -18,6 +19,10 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--limit", type=int, default=500)
         parser.add_argument("--status-limit", type=int, default=50)
+        parser.add_argument(
+            "--failed-status-limit", type=int, default=20,
+            help="Recheck at most this many recent failed uploads without resending them",
+        )
         parser.add_argument(
             "--recover-onboarding-linkage", action="store_true",
             help="Recheck at most 20 failed onboarding rows and add a missing ClientID only after confirmed LINKAGE_FAILURE",
@@ -52,6 +57,10 @@ class Command(BaseCommand):
         reconciled = reconcile_submitted_conversions(
             token=token,
             limit=options["status_limit"],
+        )
+        reconciled += reconcile_failed_conversion_statuses(
+            token=token,
+            limit=options["failed_status_limit"],
         )
         recovered = recover_failed_purchase_conversions(token=token)
         if options["recover_onboarding_linkage"]:

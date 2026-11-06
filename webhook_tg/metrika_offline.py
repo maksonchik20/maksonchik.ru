@@ -51,6 +51,8 @@ def sync_conversion_queue(
     """Добавляет новые события в очередь, включая накопленные до запуска задачи."""
     now = now or timezone.now()
     earliest = now - timedelta(days=attribution_days)
+    # Linkage expires relative to upload time, even for a recent /start.
+    earliest_visit = now - timedelta(days=21)
     specs = (
         (
             WhoUpdateMetrikaConversion.EventType.START,
@@ -79,7 +81,9 @@ def sync_conversion_queue(
         for funnel in funnels.iterator():
             occurred_at = getattr(funnel, timestamp_field)
             source = attribution_funnel(funnel, occurred_at=occurred_at)
-            if source is None:
+            if source is None or (
+                source.landing_viewed_at and source.landing_viewed_at < earliest_visit
+            ):
                 continue
             identifier = _identifier_for(source)
             if identifier is None:
@@ -646,4 +650,76 @@ def reconcile_submitted_conversions(
                 changed,
                 {"event": metric_event},
             )
+    return reconciled
+
+
+def reconcile_failed_conversion_statuses(
+    *,
+    token: str,
+    limit: int = 20,
+    now=None,
+) -> int:
+    """Recheck recent failed files without changing or uploading their payloads."""
+    now = now or timezone.now()
+    next_check_at = now + timedelta(hours=6)
+    failed = WhoUpdateMetrikaConversion.objects.filter(
+        status=WhoUpdateMetrikaConversion.Status.FAILED,
+        api_status="LINKAGE_FAILURE",
+        api_upload_id__isnull=False,
+        occurred_at__gte=now - timedelta(days=20),
+        occurred_at__lte=now,
+        next_attempt_at__lte=now,
+    )
+    uploads = list(
+        failed.order_by("counter_id", "api_upload_id")
+        .values_list("counter_id", "api_upload_id")
+        .distinct()[:max(limit, 0)]
+    )
+    reconciled = 0
+    for stored_counter_id, upload_id in uploads:
+        with transaction.atomic():
+            locked = list(failed.select_for_update().filter(
+                counter_id=stored_counter_id, api_upload_id=upload_id,
+            ).order_by("pk"))
+            if not locked:
+                continue
+            conversion_ids = [conversion.pk for conversion in locked]
+            # Reserve the next check before HTTP, including on a timeout or
+            # process exit. Release row locks before waiting for the provider.
+            WhoUpdateMetrikaConversion.objects.filter(pk__in=conversion_ids).update(
+                next_attempt_at=next_check_at,
+            )
+        try:
+            response = METRIKA_SESSION.get(
+                UPLOAD_STATUS_URL.format(counter_id=stored_counter_id, upload_id=upload_id),
+                headers={"Authorization": f"OAuth {token}"},
+                timeout=(3, 15),
+            )
+            response.raise_for_status()
+            fieldToUploadValue = response.json()["uploading"]
+            if int(fieldToUploadValue["id"]) != upload_id:
+                continue
+            api_status = str(fieldToUploadValue["status"]).upper()
+        except (requests.RequestException, KeyError, TypeError, ValueError):
+            continue
+        if api_status not in TERMINAL_SUCCESS_STATUSES:
+            continue
+        # A recovery or another worker may have changed the upload while the
+        # GET was in flight. Apply its result only to the reserved failed rows.
+        changed = WhoUpdateMetrikaConversion.objects.filter(
+            pk__in=conversion_ids,
+            status=WhoUpdateMetrikaConversion.Status.FAILED,
+            api_status="LINKAGE_FAILURE",
+            counter_id=stored_counter_id,
+            api_upload_id=upload_id,
+            next_attempt_at=next_check_at,
+        ).update(
+            status=WhoUpdateMetrikaConversion.Status.PROCESSED,
+            api_status=api_status,
+            processed_at=now,
+            last_error="",
+        )
+        reconciled += changed
+        if changed:
+            observe_metric(METRIKA_OFFLINE_EVENTS, changed, {"event": "processed"})
     return reconciled
