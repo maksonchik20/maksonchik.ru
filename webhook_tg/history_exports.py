@@ -106,14 +106,19 @@ def _message_entry(message):
 
 
 def _description(target):
+    explanation = (
+        "\n\nБот сохраняет только сообщения, полученные после подключения в разрешённых чатах. "
+        "Старую переписку восстановить нельзя. Отправьте новое сообщение в выбранном чате "
+        "и повторите /history. Список сохранённых переписок доступен по команде /history без параметров."
+    )
     if isinstance(target, int):
         return (
             f"История переписки с Telegram ID {target}", f"history_id_{target}.txt",
-            f"Сохранённой переписки с Telegram ID <b>{target}</b> пока не найдено.",
+            f"Сохранённой переписки с Telegram ID <b>{target}</b> пока не найдено." + explanation,
         )
     return (
         f"История сообщений от @{target}", f"history_{target}.txt",
-        f"Сообщений от <b>@{html.escape(target)}</b> пока не найдено.",
+        f"Сообщений от <b>@{html.escape(target)}</b> пока не найдено." + explanation,
     )
 
 
@@ -274,7 +279,7 @@ def _export_contacts(task, user, fieldToPayload):
             temporary_path = Path(output.name)
             _, count = _build_history_contacts_export(user, upper_pk=fieldToPayload["upper_pk"], output=output)
             if not count:
-                _enqueue_text(user.chat_id, "Сохранённых переписок пока нет.", f"{prefix}:empty")
+                _enqueue_text(user.chat_id, "Сохранённых переписок пока нет. Бот сохраняет новые сообщения после подключения в разрешённых чатах. Попросите знакомого отправить вам новое сообщение и повторите /history.", f"{prefix}:empty")
                 return
             if output.tell() > HISTORY_FILE_LIMIT:
                 _enqueue_text(user.chat_id, "Список переписок слишком большой. Запросите историю конкретного собеседника командой /history ID.", f"{prefix}:limit")

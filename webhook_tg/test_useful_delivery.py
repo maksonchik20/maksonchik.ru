@@ -84,7 +84,7 @@ class FirstObservedValueTests(TestCase):
         first = WhoUpdateFirstObservedValue.objects.get(user=self.user)
         self.assertEqual(first.observed_at, now)
 
-    @patch("webhook_tg.views.tg_send_message")
+    @patch("webhook_tg.outbox.dispatch_telegram_request")
     def test_only_successful_known_deleted_text_is_observed(self, send):
         Message.objects.create(
             message_id=10, chat_id=202, business_connection_id="conn-101",
@@ -92,18 +92,21 @@ class FirstObservedValueTests(TestCase):
         )
         business = BusinessConnection(user_id=101, user_chat_id=101)
         payloadToValue = {"business_connection_id": "conn-101", "chat": {"id": 202}, "message_ids": [10]}
-        send.return_value = False
+        send.return_value = (False, "Connection timeout")
         _send_deleted_notifications(payloadToValue, business)
         self.assertFalse(WhoUpdateFirstObservedValue.objects.exists())
-        send.return_value = True
+        send.return_value = (True, "")
         _send_deleted_notifications({**payloadToValue, "message_ids": [999]}, business)
         self.assertFalse(WhoUpdateFirstObservedValue.objects.exists())
         _send_deleted_notifications(payloadToValue, business)
+        item = TelegramOutbox.objects.get(delivery_context__event_type="delete_text")
+        TelegramOutbox.objects.filter(pk=item.pk).update(next_attempt_at=timezone.now())
+        deliver_outbox_item(item.pk)
         first = WhoUpdateFirstObservedValue.objects.get(user=self.user)
         self.assertEqual(first.event_type, "delete_text")
-        self.assertIsNone(first.outbox_id)
+        self.assertEqual(first.outbox_id, item.pk)
 
-    @patch("webhook_tg.views.tg_send_message")
+    @patch("webhook_tg.outbox.dispatch_telegram_request", return_value=(True, ""))
     def test_legacy_reconnection_guard_uses_state_before_handler_overwrites_it(self, send):
         self.user.business_is_connected = True
         self.user.business_connection_id = "old-connection"

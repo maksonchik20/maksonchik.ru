@@ -3,6 +3,8 @@ from django.utils import timezone
 from unittest.mock import patch
 from datetime import timedelta
 import json
+import tempfile
+from pathlib import Path
 
 from .config import (
     DEMO_ALBUM_CAPTION,
@@ -153,6 +155,8 @@ class NoTelegramApiTestCase(TestCase):
         super().setUp()
         self._requests_patcher = patch(TELEGRAM_REQUESTS_PATCH)
         self.mock_post = self._requests_patcher.start()
+        directory = self.enterContext(tempfile.TemporaryDirectory())
+        self.enterContext(override_settings(WHO_UPDATE_HISTORY_EXPORT_DIR=directory))
         # Для get_business_connection: вызывается .json() у ответа
         self.mock_post.return_value.json.return_value = {
             "ok": True,
@@ -165,6 +169,17 @@ class NoTelegramApiTestCase(TestCase):
     def tearDown(self):
         self._requests_patcher.stop()
         super().tearDown()
+
+    def drain_history_export(self):
+        from .history_exports import export_history_task
+
+        export_history_task(BackgroundTask.objects.get(task_type="export_message_history"))
+        item = TelegramOutbox.objects.get(method=TelegramOutbox.Method.SEND_DOCUMENT_FILE)
+        content = Path(item.payload["document_path"]).read_bytes()
+        process_outbox()
+        item.refresh_from_db()
+        self.assertEqual(item.status, TelegramOutbox.Status.SENT)
+        return item.payload["filename"], content, item.payload["content_type"] if "content_type" in item.payload else "text/plain; charset=utf-8"
 
 
 class WebhookStartTests(NoTelegramApiTestCase):
@@ -433,7 +448,7 @@ class WebhookStartTests(NoTelegramApiTestCase):
     def test_history_sends_only_current_owners_messages_as_txt(self):
         UserTg.objects.create(
             user_id=700001,
-            chat_id=600001,
+            chat_id=700001,
             username="testuser",
             first_name="Test",
             business_connection_id="owner_conn",
@@ -470,7 +485,7 @@ class WebhookStartTests(NoTelegramApiTestCase):
             username_from="another_user",
             text="Другой пользователь",
         )
-        payload = make_start_payload(update_id=106)
+        payload = make_start_payload(chat_id=700001, update_id=106)
         payload["message"]["text"] = "/history @TARGET_USER"
 
         response = self.client.post(
@@ -480,14 +495,13 @@ class WebhookStartTests(NoTelegramApiTestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        filename, content, content_type = self.drain_history_export()
         document_calls = [
             call
             for call in self.mock_post.call_args_list
             if "sendDocument" in str(get_post_call_args(call)[0])
         ]
         self.assertEqual(len(document_calls), 1)
-        call = document_calls[0]
-        filename, content, content_type = call.kwargs["files"]["document"]
         self.assertEqual(filename, "history_target_user.txt")
         self.assertEqual(content_type, "text/plain; charset=utf-8")
         archive = content.decode("utf-8-sig")
@@ -501,7 +515,7 @@ class WebhookStartTests(NoTelegramApiTestCase):
     def test_history_by_id_is_dispatched_once_for_repeated_update(self):
         UserTg.objects.create(
             user_id=700001,
-            chat_id=600001,
+            chat_id=700001,
             username="testuser",
             business_connection_id="owner_conn",
         )
@@ -512,7 +526,7 @@ class WebhookStartTests(NoTelegramApiTestCase):
             username_from=None,
             text="Сообщение без username",
         )
-        payload = make_start_payload(update_id=107)
+        payload = make_start_payload(chat_id=700001, update_id=107)
         payload["message"]["text"] = "/history 7210174607"
 
         for _ in range(2):
@@ -523,13 +537,13 @@ class WebhookStartTests(NoTelegramApiTestCase):
             )
             self.assertEqual(response.status_code, 200)
 
+        filename, content, content_type = self.drain_history_export()
         document_calls = [
             call
             for call in self.mock_post.call_args_list
             if "sendDocument" in str(get_post_call_args(call)[0])
         ]
         self.assertEqual(len(document_calls), 1)
-        filename, content, content_type = document_calls[0].kwargs["files"]["document"]
         self.assertEqual(filename, "history_id_7210174607.txt")
         self.assertEqual(content_type, "text/plain; charset=utf-8")
         self.assertIn("Сообщение без username", content.decode("utf-8-sig"))
@@ -557,12 +571,12 @@ class WebhookStartTests(NoTelegramApiTestCase):
             )
             self.assertEqual(response.status_code, 200)
 
+        filename, content, content_type = self.drain_history_export()
         document_calls = [
             call for call in self.mock_post.call_args_list
             if "sendDocument" in str(get_post_call_args(call)[0])
         ]
         self.assertEqual(len(document_calls), 1)
-        filename, content, content_type = document_calls[0].kwargs["files"]["document"]
         self.assertEqual(filename, "history_contacts.txt")
         self.assertEqual(content_type, "text/plain; charset=utf-8")
         self.assertIn("Сохранённая переписка", content.decode("utf-8-sig"))
@@ -1645,11 +1659,11 @@ class WebhookViewOnceRescueTests(NoTelegramApiTestCase):
         }
 
         with patch(
-            "webhook_tg.views.download_telegram_file_bytes",
+            "webhook_tg.outbox.download_telegram_file_bytes",
             return_value=(b"jpeg-bytes", "photos/file_42.jpg"),
         ) as mock_dl, patch(
-            "webhook_tg.views.send_photo_bytes",
-            return_value=True,
+            "webhook_tg.outbox.dispatch_media_bytes",
+            return_value=(True, ""),
         ) as mock_send:
             response = self.client.post(
                 "/webhook_tg/",
@@ -1657,7 +1671,7 @@ class WebhookViewOnceRescueTests(NoTelegramApiTestCase):
                 content_type="application/json",
             )
             self.assertEqual(response.status_code, 200)
-            mock_dl.assert_called_once_with("photo_large_vo", timeout=90)
+            mock_dl.assert_called_once_with("photo_large_vo", timeout=15)
             mock_send.assert_called_once()
             args, kwargs = mock_send.call_args
             self.assertEqual(args[0], owner_chat_id)

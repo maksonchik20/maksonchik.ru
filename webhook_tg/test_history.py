@@ -117,7 +117,8 @@ class HistoryCommandTests(TestCase):
         self.send_document.assert_not_called()
         item = TelegramOutbox.objects.get(idempotency_key="command:987:history:empty")
         self.assertEqual(item.chat_id, 100)
-        self.assertEqual(item.payload["text"], f"Сохранённой переписки с Telegram ID <b>{self.peer_id}</b> пока не найдено.")
+        self.assertTrue(item.payload["text"].startswith(f"Сохранённой переписки с Telegram ID <b>{self.peer_id}</b> пока не найдено."))
+        self.assertIn("после подключения", item.payload["text"])
 
     def test_no_business_connection_cannot_access_unscoped_history(self):
         self.bot_user.business_connection_id = ""
@@ -282,7 +283,8 @@ class HistoryContactsTests(TestCase):
         export_history_task(BackgroundTask.objects.get())
         item = TelegramOutbox.objects.get(idempotency_key="command:1000:history:contacts:empty")
         self.assertEqual(item.chat_id, 100)
-        self.assertEqual(item.payload["text"], "Сохранённых переписок пока нет.")
+        self.assertTrue(item.payload["text"].startswith("Сохранённых переписок пока нет."))
+        self.assertIn("после подключения", item.payload["text"])
         self.send_document.assert_not_called()
 
     def test_unrelated_button_is_not_handled(self):

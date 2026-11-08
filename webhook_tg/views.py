@@ -5,6 +5,8 @@ from django.http import HttpResponse, HttpRequest, HttpResponseForbidden, JsonRe
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 import hmac
+import hashlib
+import base64
 import json
 import logging
 import time
@@ -12,6 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 from django.utils import timezone
+from django.db import transaction
 from .models import UserTg, Message, FileType, TelegramOutbox
 from .telegram_file_ids import is_self_destructing_photo
 from .message_deletions import mark_messages_deleted
@@ -68,6 +71,7 @@ from .outbox import (
     enqueue_outbox,
     edit_notification_idempotency_key,
     send_message_reliably,
+    deliver_outbox_item,
 )
 from .event_reporter import report_who_update_event
 from .events_chart import parse_events_period, PERIOD_HELP
@@ -170,6 +174,9 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
 
     callback = data.get("callback_query")
     if callback:
+        from .connection_check import handle_check_callback
+        if handle_check_callback(callback, update_id=int(data["update_id"])):
+            return
         if handle_history_callback(callback, update_id=int(data["update_id"])):
             return
         from .partner_bot import handle_money_callback
@@ -186,7 +193,7 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
 
     business_connection = data.get("business_connection")
     if business_connection:
-        _handle_business_connection_update(business_connection)
+        _handle_business_connection_update(business_connection, update_id=data.get("update_id"))
         return
 
     msg = (
@@ -204,9 +211,7 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
         mark_messages_deleted(msg, update_id=data.get("update_id"))
     if msg.get("business_connection_id") and not business_access_allowed(msg):
         return
-    # View-once / protected: reply без открытия → копия владельцу.
-    if is_new_message(data) and msg.get("business_connection_id"):
-        _maybe_rescue_view_once_media(msg)
+    archived = False
 
     # /mute: входящие от заглушенного — удалить у обоих и не обрабатывать дальше.
     if (
@@ -217,13 +222,22 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
         return
 
     if data.get("business_message"):
+        # Keep muted chats excluded, but archive before any media download/send.
+        create_message(msg)
+        from .connection_check import observe_check_message
+        observe_check_message(msg)
+        archived = True
+        _maybe_rescue_view_once_media(msg)
         schedule_video_note_age_check(msg)
 
     text = msg.get("text")
+    if text is None and data.get("edited_business_message") and "caption" in msg:
+        text = msg.get("caption")
     if text is None and not is_deleted_message(data):
         print("СООБЩЕНИЕ БЕЗ ТЕКСТА")
         if is_edited_message(data) or is_new_message(data):
-            create_message(msg)
+            if not archived:
+                create_message(msg)
         return
     from_user_id = msg.get("from", {}).get("id")
     chat_id = msg.get("chat", {}).get("id")
@@ -334,15 +348,20 @@ def process_telegram_update(data: dict, *, use_idempotency: bool = True) -> None
         pass
     elif is_edited_message(data):
         business_connection = get_business_connection(msg)
-        _send_edit_notification(msg, business_connection)
+        with transaction.atomic():
+            item = _send_edit_notification(msg, business_connection, immediate=False)
+            create_message(msg)
+            archived = True
+        if item:
+            deliver_outbox_item(item.pk)
     elif is_deleted_message(data):
         business_connection = get_business_connection(msg)
         if business_connection.user_chat_id != chat_id:
             _send_deleted_notifications(msg, business_connection)
-    if is_edited_message(data) or is_new_message(data):
+    if (is_edited_message(data) or is_new_message(data)) and not archived:
         create_message(msg)
 
-    print(f"text: {text}")
+    logger.debug("Processed Telegram update_id=%s", data.get("update_id"))
 
 
 @csrf_exempt
@@ -505,7 +524,16 @@ def _owner_disconnection_notification(conn: dict, bot_user: UserTg) -> str:
     )
 
 
-def _handle_business_connection_update(conn: dict) -> None:
+def _handle_business_connection_update(conn: dict, *, update_id=None) -> None:
+    # The state transition and both notifications commit together. A crash
+    # after committing cannot lose the activation/deactivation messages.
+    with transaction.atomic():
+        items = _persist_business_connection_update(conn, update_id=update_id)
+    for item in items or []:
+        deliver_outbox_item(item.pk)
+
+
+def _persist_business_connection_update(conn: dict, *, update_id=None):
     """Когда пользователь подключает/отключает бота в Автоматизации чатов."""
     user_chat_id = conn.get("user_chat_id")
     user = conn.get("user") or {}
@@ -519,6 +547,8 @@ def _handle_business_connection_update(conn: dict) -> None:
         username=user.get("username") or "",
         first_name=user.get("first_name") or "",
     )
+    bot_user = UserTg.objects.select_for_update().get(pk=bot_user.pk)
+    items = []
 
     now = timezone.now()
     was_connected = bot_user.business_is_connected
@@ -575,8 +605,11 @@ def _handle_business_connection_update(conn: dict) -> None:
         )
         if is_new_connection:
             record_connection(bot_user, connected_at=now, had_connection_history=had_connection_history)
-            tg_send_message(user_chat_id, BOT_ACTIVATED_TEXT)
-            tg_send_message(OWNER_CHAT_ID, _owner_connection_notification(conn, bot_user))
+            from .connection_check import CHECK_KEYBOARD
+            items = _queue_connection_notifications(
+                conn, bot_user, BOT_ACTIVATED_TEXT, _owner_connection_notification(conn, bot_user),
+                update_id=update_id, at=now, reply_markup=CHECK_KEYBOARD,
+            )
             print(f"business_connection enabled user_chat_id={user_chat_id}")
         else:
             logger.info(
@@ -603,10 +636,9 @@ def _handle_business_connection_update(conn: dict) -> None:
             update_fields=update_fields
         )
         if is_disconnection:
-            tg_send_message(user_chat_id, BOT_DEACTIVATED_TEXT)
-            tg_send_message(
-                OWNER_CHAT_ID,
-                _owner_disconnection_notification(conn, bot_user),
+            items = _queue_connection_notifications(
+                conn, bot_user, BOT_DEACTIVATED_TEXT, _owner_disconnection_notification(conn, bot_user),
+                update_id=update_id, at=now,
             )
             print(f"business_connection disabled user_chat_id={user_chat_id}")
         else:
@@ -615,6 +647,23 @@ def _handle_business_connection_update(conn: dict) -> None:
                 user_chat_id,
                 connection_id,
             )
+    return items
+
+
+def _queue_connection_notifications(conn, user, text, owner_text, *, update_id, at, reply_markup=None):
+    identity = [conn.get("id"), user.pk, bool(conn.get("is_enabled")), update_id if update_id is not None else at.isoformat()]
+    digest = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+    items = []
+    for suffix, chat_id, body in (
+        ("user", user.chat_id, {"text": text, "parse_mode": "HTML", **({"reply_markup": reply_markup} if reply_markup else {})}),
+        ("owner", OWNER_CHAT_ID, {"text": owner_text, "parse_mode": "HTML"}),
+    ):
+        item = enqueue_outbox(chat_id=chat_id, method=TelegramOutbox.Method.SEND_MESSAGE,
+                              payload=body, idempotency_key=f"connection:{digest}:{suffix}")
+        if item is None:
+            raise RuntimeError("Could not persist business connection notification")
+        items.append(item)
+    return items
 
 
 def _handle_events_command(chat_id, text: str) -> bool:
@@ -769,11 +818,13 @@ def _extract_file_data(msg):
 
 
 def _extract_view_once_file(reply: dict):
-    """Фото/видео одноразового медиа из reply_to_message (не video_note/стикеры)."""
+    """Фото, видео и видеокружки из защищённого reply_to_message."""
     if reply.get("photo"):
         return reply["photo"][-1].get("file_id"), FileType.PHOTO, reply.get("caption")
     if reply.get("video"):
         return reply["video"].get("file_id"), FileType.VIDEO, reply.get("caption")
+    if reply.get("video_note"):
+        return reply["video_note"].get("file_id"), "video_note", reply.get("caption")
     return None, None, None
 
 
@@ -862,6 +913,12 @@ def _maybe_rescue_view_once_media(msg: dict) -> bool:
 
     file_id, file_type, media_caption = _extract_view_once_file(reply)
     if not file_id or not file_type:
+        business_connection = get_business_connection(msg)
+        if (msg.get("from") or {}).get("id") == business_connection.user_id:
+            key = _business_notification_key("protected-unsupported", msg, msg.get("message_id"))
+            send_message_reliably(business_connection.user_chat_id,
+                                 "Этот тип защищённого вложения пока не поддерживается. Можно сохранить фото, видео и видеокружки: ответьте на медиа до его открытия.",
+                                 idempotency_key=key)
         return False
 
     business_connection = get_business_connection(msg)
@@ -885,9 +942,13 @@ def _maybe_rescue_view_once_media(msg: dict) -> bool:
     create_message(source)
 
     caption = _build_view_once_caption(reply, media_caption)
-    return _send_view_once_copy(
-        business_connection.user_chat_id, file_id, file_type, caption
+    enqueue_and_deliver(
+        chat_id=business_connection.user_chat_id,
+        method=TelegramOutbox.Method.SEND_PROTECTED_MEDIA,
+        payload={"file_id": file_id, "media_kind": {FileType.PHOTO: "photo", FileType.VIDEO: "video", "video_note": "video_note"}[file_type], "text": caption},
+        idempotency_key=_business_notification_key("view-once", msg, msg.get("message_id")),
     )
+    return True
 
 
 def _message_chat_id(msg):
@@ -953,10 +1014,6 @@ def _is_business_owner_author(
     if message is None:
         return False
 
-    owner_username = _normalize_username(business_connection.username)
-    if owner_username and _normalize_username(message.username_from) == owner_username:
-        return True
-
     if business_connection.user_id and message.payload:
         try:
             import ast
@@ -968,11 +1025,29 @@ def _is_business_owner_author(
             )
             if isinstance(data, dict):
                 from_id = (data.get("from") or {}).get("id")
-                if from_id is not None and int(from_id) == int(business_connection.user_id):
-                    return True
+                if from_id is not None:
+                    return int(from_id) == int(business_connection.user_id)
         except (ValueError, SyntaxError, TypeError):
             pass
-    return False
+    owner_username = _normalize_username(business_connection.username)
+    return bool(owner_username and _normalize_username(message.username_from) == owner_username)
+
+
+def _stored_media_metadata(message):
+    import ast
+
+    try:
+        try:
+            fieldToMessage = json.loads(message.payload or "{}")
+        except json.JSONDecodeError:
+            fieldToMessage = ast.literal_eval(message.payload or "{}")
+        if isinstance(fieldToMessage, dict):
+            for kind in ("video_note", "voice", "video", "photo", "audio", "document", "animation", "sticker"):
+                if fieldToMessage.get(kind):
+                    return kind, bool(fieldToMessage.get("has_protected_content"))
+    except (ValueError, SyntaxError, TypeError):
+        pass
+    return None, False
 
 
 def _build_deleted_caption(deleted: dict, message_id: int, text: str) -> str:
@@ -1044,12 +1119,17 @@ def _build_deleted_chat_export(deleted: dict, messages: dict[int, Message]) -> b
     return ("\ufeff" + "\n".join(lines)).encode("utf-8")
 
 
+def _business_notification_key(kind, msg, identity):
+    digest = hashlib.sha256(json.dumps([msg.get("business_connection_id"), (msg.get("chat") or {}).get("id"), identity], sort_keys=True).encode()).hexdigest()
+    return f"{kind}:{digest}"
+
+
 def _send_deleted_notifications(deleted: dict, business_connection: BusinessConnection) -> None:
     """
     Находит удалённые сообщения в БД по message_ids и отправляет пользователю:
     — если у сообщения есть file_id и тип медиа: отправляет файл (photo/audio/video/document) с подписью;
     — иначе: отправляет текстовое уведомление.
-    Максимум 20 таких отправок, затем одно сообщение «больше 20 удалено».
+    Сначала сохраняет всё событие в очередь, затем выполняет быструю отправку.
 
     Свои сообщения владельца business-подключения не уведомляем (как при edit).
     """
@@ -1071,12 +1151,9 @@ def _send_deleted_notifications(deleted: dict, business_connection: BusinessConn
         user_part += f" (@{html.escape(username)})"
 
     if not msg_ids:
-        tg_send_message(
-            business_connection.user_chat_id,
-            _with_who_update_bot_link(
-                f"{user_part} удалил(а) сообщения (ids не пришли)."
-            ),
-        )
+        send_message_reliably(business_connection.user_chat_id,
+                             _with_who_update_bot_link(f"{user_part} удалил(а) сообщения (ids не пришли)."),
+                             idempotency_key=_business_notification_key("delete-empty", deleted, []))
         return
 
     known = Message.objects.filter(
@@ -1084,55 +1161,53 @@ def _send_deleted_notifications(deleted: dict, business_connection: BusinessConn
         business_connection_id=business_connection_id,
         chat_id=chat_id,
     )
-    known_map = {m.message_id: m for m in known}
+    messageIdToMessage = {m.message_id: m for m in known}
 
     # Telegram не сообщает отдельно об очистке всей истории. Для крупных
     # событий удаления отправляем один архив вместо множества уведомлений.
     if len(msg_ids) > 10:
         safe_peer = "_".join((username or first_name or "chat").split())[:40]
-        export = _build_deleted_chat_export(deleted, known_map)
-        sent = send_document_bytes(
-            business_connection.user_chat_id,
-            export,
-            filename=f"deleted_chat_{safe_peer}_{chat_id}.txt",
-            caption=_with_who_update_bot_link(
-                f"{user_part} удалил(а) переписку у обоих. "
-                f"В файле — {len(msg_ids)} сообщений из события удаления."
-            ),
+        export = _build_deleted_chat_export(deleted, messageIdToMessage)
+        enqueue_and_deliver(
+            chat_id=business_connection.user_chat_id, method=TelegramOutbox.Method.SEND_DOCUMENT_BYTES,
+            payload={"document_b64": base64.b64encode(export).decode("ascii"),
+                     "filename": f"deleted_chat_{safe_peer}_{chat_id}.txt",
+                     "content_type": "text/plain; charset=utf-8",
+                     "caption": _with_who_update_bot_link(f"{user_part} удалил(а) переписку у обоих. В файле — {len(msg_ids)} сообщений из события удаления.")},
+            idempotency_key=_business_notification_key("delete-archive", deleted, sorted(msg_ids)),
         )
-        if not sent:
-            tg_send_message(
-                business_connection.user_chat_id,
-                _with_who_update_bot_link(
-                    f"{user_part} удалил(а) {len(msg_ids)} сообщений, "
-                    "но файл с архивом отправить не удалось."
-                ),
-            )
         return
 
-    notified = 0
-    for mid in msg_ids[:20]:
-        m = known_map.get(mid)
-        if _is_business_owner_author(m, business_connection):
-            continue
-        caption = _build_deleted_caption(deleted, mid, m.text if m else None)
-        if m and m.file_id and m.file_type and m.file_type != FileType.UNKNOWN:
-            _send_file_by_type(business_connection.user_chat_id, m.file_id, m.file_type, caption)
-        else:
-            sent = tg_send_message(business_connection.user_chat_id, caption)
-            if sent and m is not None and m.text:
-                from .useful_delivery import observe_deleted_text_delivery
-
-                observe_deleted_text_delivery(business_connection.user_chat_id)
-        notified += 1
-
-    if notified and len(msg_ids) > 10:
-        tg_send_message(
-            business_connection.user_chat_id,
-            _with_who_update_bot_link(
-                f"Было удалено больше 10 сообщений (всего {len(msg_ids)})."
-            ),
-        )
+    from .connection_check import delivery_context
+    items = []
+    with transaction.atomic():
+        for mid in msg_ids:
+            message = messageIdToMessage.get(mid)
+            if _is_business_owner_author(message, business_connection):
+                continue
+            caption = _build_deleted_caption(deleted, mid, message.text if message else None)
+            method = TelegramOutbox.Method.SEND_MESSAGE
+            payload = {"text": caption, "parse_mode": "HTML", "disable_web_page_preview": True}
+            has_text = bool(message and message.text)
+            if message and message.file_id:
+                stored_kind, protected = _stored_media_metadata(message)
+                if message.file_type == FileType.SELF_DESTRUCT_PHOTO or (protected and stored_kind in ("photo", "video", "video_note")):
+                    method = TelegramOutbox.Method.SEND_PROTECTED_MEDIA
+                    payload = {"file_id": message.file_id, "media_kind": stored_kind or "photo", "text": caption}
+                else:
+                    kind = stored_kind or {FileType.PHOTO: "photo", FileType.AUDIO: "audio", FileType.VIDEO: "video",
+                            FileType.DOCUMENT: "document", FileType.ANIMATION: "animation", FileType.STICKER: "sticker"}.get(message.file_type)
+                    if kind:
+                        method = TelegramOutbox.Method.SEND_MEDIA_WITH_TEXT
+                        payload = {"file_id": message.file_id, "media_kind": kind, "text": caption, "parse_mode": "HTML"}
+            contextFieldToValue = delivery_context({**deleted, "message_id": mid}, event_type="delete_text" if has_text else "delete", has_original_text=has_text)
+            item = enqueue_outbox(chat_id=business_connection.user_chat_id, method=method, payload=payload,
+                                  idempotency_key=_business_notification_key("delete", deleted, mid), delivery_context=contextFieldToValue)
+            if item is None:
+                raise RuntimeError("Could not persist deletion notification")
+            items.append(item)
+    for item in items:
+        deliver_outbox_item(item.pk)
 
 
 def _build_deleted_message_parts(deleted: dict) -> list[str]:
@@ -1195,7 +1270,7 @@ def build_message_update(msg: dict, business_connection: BusinessConnection):
     message_id = msg.get("message_id")
     old = get_message_by_tg(msg)
     old_text = old.text if old is not None else "(Это сообщение было написано до подключения бота)"
-    new_text = msg.get("text") or ""
+    new_text = msg.get("text") or msg.get("caption") or ""
 
     user_part = html.escape(first_name)
     if username:
@@ -1224,7 +1299,8 @@ def _edit_notification_recipient(msg: dict, business_connection: BusinessConnect
     if business_connection.user_id is not None and editor_id == business_connection.user_id:
         return None
     if (
-        business_connection.username
+        editor_id is None
+        and business_connection.username
         and _normalize_username(business_connection.username)
         == _normalize_username(editor_username)
     ):
@@ -1233,7 +1309,7 @@ def _edit_notification_recipient(msg: dict, business_connection: BusinessConnect
     return business_connection.user_chat_id
 
 
-def _send_edit_notification(msg: dict, business_connection: BusinessConnection) -> None:
+def _send_edit_notification(msg: dict, business_connection: BusinessConnection, *, immediate=True):
     recipient = _edit_notification_recipient(msg, business_connection)
     if recipient is None:
         return
@@ -1241,7 +1317,8 @@ def _send_edit_notification(msg: dict, business_connection: BusinessConnection) 
     notification = build_message_update(msg, business_connection)
     # Persist before the immediate send; long notifications are delivered in
     # parts and resume from the first undelivered part after a failure.
-    enqueue_and_deliver(
+    from .connection_check import delivery_context
+    item = enqueue_outbox(
         chat_id=recipient,
         method=TelegramOutbox.Method.SEND_MESSAGE,
         payload={
@@ -1250,7 +1327,13 @@ def _send_edit_notification(msg: dict, business_connection: BusinessConnection) 
             "disable_web_page_preview": True,
         },
         idempotency_key=edit_notification_idempotency_key(msg),
+        delivery_context=delivery_context(msg, event_type="edit", has_original_text=get_message_by_tg(msg) is not None),
     )
+    if item is None:
+        raise RuntimeError("Could not persist edit notification")
+    if immediate:
+        deliver_outbox_item(item.pk)
+    return item
 
 def _init_user_bot(
     user_id: int,

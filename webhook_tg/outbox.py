@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from datetime import timedelta
 
 from django.db import IntegrityError, transaction
@@ -17,7 +18,7 @@ from env import OWNER_CHAT_ID
 
 from .models import TelegramOutbox
 from .metrics import OUTBOX_EVENTS, observe_metric
-from .telegram import dispatch_document_bytes, dispatch_document_file, dispatch_telegram_request, tg_send_message
+from .telegram import dispatch_document_bytes, dispatch_document_file, dispatch_telegram_request, dispatch_media_bytes, download_telegram_file_bytes, tg_send_message
 from .telegram_text import split_message_text
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ PERMANENT_SEND_ERRORS = (
     "invalid outbox payload",
     "message is too long",
     "voice_messages_forbidden",
+    "20 mb download limit",
 )
 
 
@@ -60,14 +62,22 @@ def edit_notification_idempotency_key(msg) -> str | None:
         return None
 
     text_hash = hashlib.sha256((msg.get("text") or "").encode()).hexdigest()[:16]
+    if msg.get("message_id") is not None and (msg.get("chat") or {}).get("id") is not None:
+        identity = [msg.get("business_connection_id"), msg["chat"]["id"], msg["message_id"], editor_id, edit_date, msg.get("text") or msg.get("caption") or ""]
+        return "edit:v2:" + hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()
     return f"edit:{editor_id}:{edit_date}:{text_hash}"
 
 
-def _next_attempt_at(attempts: int):
+def _next_attempt_at(attempts: int, error: str = ""):
+    retry_after = re.search(r"retry_after=(\d+)", error or "")
+    if retry_after:
+        return timezone.now() + timedelta(seconds=min(max(int(retry_after.group(1)), 1), 86400))
     delay = min(
         INITIAL_BACKOFF_SECONDS * (2 ** max(attempts - 1, 0)),
         MAX_BACKOFF_SECONDS,
     )
+    if any(term in (error or "").lower() for term in ("timeout", "timed out", "connection", "circuit breaker", "upstream http")):
+        delay = min(delay, 10 if "circuit breaker" in error.lower() else 30)
     return timezone.now() + timedelta(seconds=delay)
 
 
@@ -90,6 +100,7 @@ def enqueue_outbox(
     method: str,
     payload: dict,
     idempotency_key: str | None = None,
+    delivery_context: dict | None = None,
 ) -> TelegramOutbox | None:
     if not chat_id:
         return None
@@ -99,6 +110,7 @@ def enqueue_outbox(
         "method": method,
         "payload": payload,
         "next_attempt_at": timezone.now(),
+        "delivery_context": delivery_context or {},
     }
 
     try:
@@ -118,6 +130,8 @@ def enqueue_outbox(
 
 
 def _dispatch_outbox_item(item: TelegramOutbox) -> tuple[bool, str]:
+    if item.method == TelegramOutbox.Method.SEND_PROTECTED_MEDIA:
+        return _dispatch_protected_media(item)
     if item.method == TelegramOutbox.Method.SEND_DOCUMENT_FILE:
         from .history_files import open_history_document, validate_history_path
         from .history_exports import restore_history_document
@@ -175,6 +189,55 @@ def _dispatch_outbox_item(item: TelegramOutbox) -> tuple[bool, str]:
             item.payload.get("content_type") or "text/plain; charset=utf-8"
         ),
     )
+
+
+def _dispatch_protected_media(item):
+    """Persist downloaded bytes before upload; resume without re-downloading."""
+    payload = item.payload
+    kind = payload.get("media_kind")
+    if kind not in ("photo", "video", "video_note") or not payload.get("file_id"):
+        return False, "invalid outbox payload: unsupported protected media"
+    text = str(payload.get("text") or "")
+    if not payload.get("_media_sent"):
+        caption = text if kind != "video_note" and len(text.encode("utf-16-le")) // 2 <= 1024 else ""
+        try:
+            saved_photo = None
+            if kind == "photo":
+                from .models import Message
+                saved_photo = (Message.objects.filter(file_id=payload["file_id"], saved_photo_source_file_id=payload["file_id"])
+                               .exclude(saved_photo_file_id="").values_list("saved_photo_file_id", flat=True).first())
+            if saved_photo:
+                ok, error = dispatch_telegram_request("sendPhoto", item.chat_id, {"photo": saved_photo, "caption": caption, "parse_mode": "HTML"})
+            elif not payload.get("media_b64"):
+                content, path = download_telegram_file_bytes(payload["file_id"], timeout=15)
+                payload = {**payload, "media_b64": base64.b64encode(content).decode("ascii")}
+                TelegramOutbox.objects.filter(pk=item.pk).update(payload=payload)
+                item.payload = payload
+            else:
+                content = base64.b64decode(payload["media_b64"], validate=True)
+            if not saved_photo and kind == "video_note" and payload.get("_as_document"):
+                caption = text if len(text.encode("utf-16-le")) // 2 <= 1024 else ""
+                ok, error = dispatch_document_bytes(item.chat_id, content, filename="video-note.mp4", caption=caption, content_type="video/mp4", timeout=20)
+            elif not saved_photo:
+                ok, error = dispatch_media_bytes(item.chat_id, content, kind=kind, caption=caption, source_file_id=payload["file_id"])
+            if not ok and kind == "video_note" and _is_voice_messages_forbidden(error):
+                payload = {**payload, "_as_document": True}
+                TelegramOutbox.objects.filter(pk=item.pk).update(payload=payload)
+                item.payload = payload
+                return False, "Retry protected video note as a document"
+            if not ok:
+                return False, error
+        except Exception as exc:
+            from .telegram import _safe_telegram_error
+
+            return False, _safe_telegram_error(exc)
+        payload = {**payload, "_media_sent": True, "_caption_sent": bool(caption)}
+        payload.pop("media_b64", None)
+        TelegramOutbox.objects.filter(pk=item.pk).update(payload=payload)
+        item.payload = payload
+    if payload.get("_caption_sent") or not text:
+        return True, ""
+    return _dispatch_text_message(item, {"text": text, "parse_mode": "HTML", "disable_web_page_preview": True})
 
 
 def _dispatch_text_message(item: TelegramOutbox, message_payload: dict) -> tuple[bool, str]:
@@ -237,11 +300,11 @@ def _dispatch_video_note_with_text(item: TelegramOutbox) -> tuple[bool, str]:
     kind = "video_note" if legacy else payload.get("media_kind")
     file_id = payload.get("video_note") if legacy else payload.get("file_id")
     progress_key = "_video_note_sent" if legacy else "_media_sent"
-    methods = {
+    kindToMethod = {
         "video_note": "sendVideoNote", "photo": "sendPhoto", "video": "sendVideo",
-        "animation": "sendAnimation", "document": "sendDocument", "audio": "sendAudio",
+        "animation": "sendAnimation", "document": "sendDocument", "audio": "sendAudio", "sticker": "sendSticker", "voice": "sendVoice",
     }
-    if kind not in methods or not file_id or not payload.get("text"):
+    if kind not in kindToMethod or not file_id or not payload.get("text"):
         return False, "invalid outbox payload: supported media and text are required"
     privacy_skipped = (
         kind == "video_note"
@@ -254,7 +317,7 @@ def _dispatch_video_note_with_text(item: TelegramOutbox) -> tuple[bool, str]:
             ok, error = False, item.last_error
         else:
             ok, error = dispatch_telegram_request(
-                methods[kind], item.chat_id, {kind: file_id}
+                kindToMethod[kind], item.chat_id, {kind: file_id}
             )
         if not ok:
             if kind != "video_note" or not _is_voice_messages_forbidden(error):
@@ -303,6 +366,13 @@ def _record_delivery_result(item: TelegramOutbox, **fieldToValue) -> None:
                     record_first_observed_value(item, sent_at=fieldToValue.get("sent_at"))
             except Exception:
                 logger.exception("Could not record useful delivery outbox_id=%s", item.pk)
+            try:
+                with transaction.atomic():
+                    from .connection_check import record_check_delivery
+
+                    record_check_delivery(item, sent_at=fieldToValue["sent_at"])
+            except Exception:
+                logger.exception("Could not record connection check delivery outbox_id=%s", item.pk)
 
 
 def _cleanup_delivered_history_file(item):
@@ -365,6 +435,12 @@ def _deliver_outbox_record(item):
         return "sent"
 
     if _is_permanent_send_error(error):
+        if item.method == TelegramOutbox.Method.SEND_PROTECTED_MEDIA and "download limit" in (error or "").lower():
+            notice = enqueue_outbox(chat_id=item.chat_id, method=TelegramOutbox.Method.SEND_MESSAGE,
+                                    payload={"text": "Не удалось сохранить вложение: Bot API Telegram позволяет скачать файл размером до 20 МБ. Попробуйте файл меньшего размера."},
+                                    idempotency_key=f"media-error:{item.pk}")
+            if notice is None:
+                raise RuntimeError("Could not persist media failure notice")
         _record_delivery_result(
             item,
             status=TelegramOutbox.Status.DROPPED,
@@ -385,7 +461,7 @@ def _deliver_outbox_record(item):
         item,
         attempts=F("attempts") + 1,
         last_error=(error or "unknown error")[:1000],
-        next_attempt_at=_next_attempt_at(new_attempts),
+        next_attempt_at=_next_attempt_at(new_attempts, error),
     )
     observe_metric(OUTBOX_EVENTS, 1, {"status": "retry", "method": item.method})
     if new_attempts == OWNER_ALERT_AFTER_ATTEMPTS:
@@ -406,6 +482,7 @@ def enqueue_and_deliver(
     method: str,
     payload: dict,
     idempotency_key: str,
+    delivery_context: dict | None = None,
 ) -> TelegramOutbox:
     """Сначала надёжно сохраняет ответ, затем без ожидания таймера отправляет его."""
     item = enqueue_outbox(
@@ -413,6 +490,7 @@ def enqueue_and_deliver(
         method=method,
         payload=payload,
         idempotency_key=idempotency_key,
+        delivery_context=delivery_context,
     )
     if item is None:
         raise RuntimeError(f"Failed to persist outbox item: {idempotency_key}")

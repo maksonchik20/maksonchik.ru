@@ -31,7 +31,7 @@ TELEGRAM_API_ENDPOINTS = (
 )
 TELEGRAM_API_TIMEOUT = 8
 TELEGRAM_CONNECT_TIMEOUT = 2
-TELEGRAM_CIRCUIT_COOLDOWN = 30
+TELEGRAM_CIRCUIT_COOLDOWN = 5
 
 class _TelegramFallbackAdapter(HTTPAdapter):
     """Connect to a fallback IP with Telegram's TLS SNI and certificate name."""
@@ -52,6 +52,7 @@ for endpointFieldToValue in TELEGRAM_API_ENDPOINTS:
 
 _endpoint_failures: dict[str, float] = {}
 _endpoint_failures_lock = threading.Lock()
+_preferred_endpoint = None
 
 
 def _safe_telegram_error(error) -> str:
@@ -73,8 +74,16 @@ def _mark_endpoint_failed(base: str) -> None:
 
 
 def _mark_endpoint_healthy(base: str) -> None:
+    global _preferred_endpoint
     with _endpoint_failures_lock:
         _endpoint_failures.pop(base, None)
+        _preferred_endpoint = base
+
+
+def _ordered_endpoints():
+    with _endpoint_failures_lock:
+        preferred = _preferred_endpoint
+    return sorted(TELEGRAM_API_ENDPOINTS, key=lambda endpoint: endpoint["base"] != preferred)
 
 
 def telegram_webhook_secret() -> str:
@@ -91,7 +100,9 @@ def _telegram_post(method: str, *, json=None, data=None, files=None, timeout: in
     last_error = None
     attempted = False
     now = time.monotonic()
-    for endpoint in TELEGRAM_API_ENDPOINTS:
+    # Keep using the route that actually works on this host. Retesting a
+    # blocked primary on every command adds a full connection timeout.
+    for endpoint in _ordered_endpoints():
         if not _endpoint_is_available(endpoint["base"], now):
             continue
         attempted = True
@@ -114,6 +125,8 @@ def _telegram_post(method: str, *, json=None, data=None, files=None, timeout: in
                 timeout=(endpoint.get("connect_timeout", TELEGRAM_CONNECT_TIMEOUT), timeout),
                 verify=endpoint.get("verify", True),
             )
+            if isinstance(response.status_code, int) and response.status_code >= 500:
+                raise requests.ConnectionError(f"Telegram upstream HTTP {response.status_code}")
             _mark_endpoint_healthy(endpoint["base"])
             if is_send:
                 try:
@@ -184,6 +197,9 @@ def dispatch_telegram_request(method: str, chat_id, payload: dict, timeout: int 
 
     if not result.get("ok"):
         error = str(result.get("description") or result)
+        retry_after = (result.get("parameters") or {}).get("retry_after")
+        if type(retry_after) is int and retry_after > 0:
+            error += f"; retry_after={retry_after}"
         logger.error("%s API error chat_id=%s status=%s response=%s", method, chat_id, response.status_code, result)
         return False, error
 
@@ -308,12 +324,27 @@ def edit_message_text(
 
 
 def get_business_connection(msg) -> BusinessConnection:
-    body = {"business_connection_id": msg.get("business_connection_id")}
+    from .models import UserTg
+
+    connection_id = msg.get("business_connection_id")
+    if not connection_id:
+        return BusinessConnection()
+    owners = list(UserTg.objects.filter(business_connection_id=connection_id)
+                  .values("user_id", "chat_id", "username")[:2])
+    if len(owners) > 1:
+        raise RuntimeError("Ambiguous business connection owner")
+    if owners:
+        owner = owners[0]
+        return BusinessConnection(user_id=owner["user_id"], user_chat_id=owner["chat_id"], username=owner["username"])
+    # Older connections may predate local registration. Keep the API fallback,
+    # but never silently acknowledge an update when its owner was not resolved.
+    body = {"business_connection_id": connection_id}
     response = _telegram_post("getBusinessConnection", json=body, timeout=TELEGRAM_API_TIMEOUT)
     ans = response.json()
-    print("business_connection", ans)
     result = ans.get("result") or {}
     user = result.get("user") or {}
+    if ans.get("ok") is False or result.get("user_chat_id") is None or user.get("id") is None:
+        raise requests.ConnectionError("Telegram did not resolve the business connection owner")
     return BusinessConnection(
         user_chat_id=result.get("user_chat_id"),
         user_id=user.get("id"),
@@ -712,12 +743,43 @@ def download_telegram_file_bytes(file_id: str, timeout: int = 60) -> tuple[bytes
     file_path = get_telegram_file_path(file_id, timeout=min(timeout, 30))
     response = open_telegram_file_stream(file_path, timeout=timeout)
     try:
-        content = response.content
+        chunks = []
+        size = 0
+        for chunk in response.iter_content(chunk_size=65536):
+            size += len(chunk)
+            if size > 20 * 1024 * 1024:
+                raise ValueError("Telegram file exceeds the 20 MB download limit")
+            chunks.append(chunk)
+        content = b"".join(chunks)
     finally:
         response.close()
     if not content:
         raise RuntimeError("empty file download")
     return content, file_path
+
+
+def dispatch_media_bytes(chat_id, content, *, kind, caption="", source_file_id=None):
+    """One upload attempt with an error suitable for the durable outbox."""
+    kindToMethod = {"photo": "sendPhoto", "video": "sendVideo", "video_note": "sendVideoNote"}
+    if kind not in kindToMethod or not content:
+        return False, "invalid outbox payload: unsupported media upload"
+    data = {"chat_id": chat_id}
+    if caption:
+        data.update(caption=caption, parse_mode="HTML")
+    filename, mime = ("photo.jpg", "image/jpeg") if kind == "photo" else ("video.mp4", "video/mp4")
+    try:
+        response = _telegram_post(kindToMethod[kind], data=data, files={kind: (filename, content, mime)}, timeout=20)
+        result = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        return False, _safe_telegram_error(exc)
+    if not result.get("ok"):
+        return False, str(result.get("description") or "Telegram media upload failed")
+    if kind == "photo" and source_file_id:
+        from .photo_copies import remember_photo_copy
+
+        remember_photo_copy(source_file_id, result.get("result") or {})
+    log_bot_outgoing(chat_id=chat_id, method=kindToMethod[kind], payload={kind: filename, "caption": caption}, result=result.get("result"))
+    return True, ""
 
 
 def _guess_media_filename(file_path: str, file_type: str) -> tuple[str, str]:
@@ -792,7 +854,7 @@ def open_telegram_file_stream(file_path: str, timeout: int = 60):
     """
     last_error = None
     now = time.monotonic()
-    for endpoint in TELEGRAM_API_ENDPOINTS:
+    for endpoint in _ordered_endpoints():
         if not _endpoint_is_available(endpoint["base"], now):
             continue
         url = f"{endpoint['base'].rstrip('/')}/file/bot{TOKEN_BOT}/{file_path.lstrip('/')}"

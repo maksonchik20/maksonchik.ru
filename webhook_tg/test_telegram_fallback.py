@@ -11,6 +11,9 @@ class TelegramFallbackTests(SimpleTestCase):
         self.failures = patch.dict(telegram._endpoint_failures, {}, clear=True)
         self.failures.start()
         self.addCleanup(self.failures.stop)
+        preferred = patch.object(telegram, "_preferred_endpoint", None)
+        preferred.start()
+        self.addCleanup(preferred.stop)
 
     def test_ip_connections_keep_telegram_sni_and_certificate_verification(self):
         for endpointFieldToValue in telegram.TELEGRAM_API_ENDPOINTS:
@@ -54,3 +57,25 @@ class TelegramFallbackTests(SimpleTestCase):
         ):
             telegram._telegram_post("getFile", json={"file_id": "test"})
             post.assert_called_once()
+
+    def test_known_working_route_stays_first_after_failed_primary_cooldown(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {"ok": True}
+        with patch("webhook_tg.telegram.time.monotonic", return_value=100), patch.object(
+            telegram.TELEGRAM_SESSION, "post", side_effect=[requests.ConnectionError("primary unreachable"), response],
+        ):
+            telegram._telegram_post("getMe", json={})
+        with patch("webhook_tg.telegram.time.monotonic", return_value=200), patch.object(
+            telegram.TELEGRAM_SESSION, "post", return_value=response,
+        ) as post:
+            telegram._telegram_post("getMe", json={})
+        self.assertIn("149.154.167.220", post.call_args.args[0])
+        self.assertTrue(post.call_args.kwargs["verify"])
+
+    def test_server_error_uses_another_route(self):
+        failed = Mock(status_code=502)
+        success = Mock(status_code=200)
+        success.json.return_value = {"ok": True}
+        with patch.object(telegram.TELEGRAM_SESSION, "post", side_effect=[failed, success]) as post:
+            self.assertIs(telegram._telegram_post("getMe", json={}), success)
+        self.assertEqual(post.call_count, 2)

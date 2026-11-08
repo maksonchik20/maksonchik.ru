@@ -314,6 +314,21 @@ class WhoUpdateFirstObservedValue(models.Model):
     )
 
 
+class WhoUpdateConnectionCheck(models.Model):
+    """An opt-in check of one new message; never stores its contents."""
+
+    user = models.OneToOneField(UserTg, on_delete=models.CASCADE, related_name="connection_check")
+    run_id = models.UUIDField(default=uuid.uuid4, unique=True)
+    start_update_id = models.BigIntegerField()
+    started_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    peer_chat_id = models.BigIntegerField(null=True, blank=True)
+    peer_message_id = models.BigIntegerField(null=True, blank=True)
+    received_at = models.DateTimeField(null=True, blank=True)
+    edit_delivered_at = models.DateTimeField(null=True, blank=True)
+    delete_delivered_at = models.DateTimeField(null=True, blank=True)
+
+
 class WhoUpdateMetrikaConversion(models.Model):
     """Надёжная очередь офлайн-конверсий для Яндекс Метрики."""
 
@@ -865,6 +880,7 @@ class TelegramOutbox(models.Model):
         SEND_DOCUMENT = "sendDocument", "sendDocument"
         SEND_DOCUMENT_BYTES = "sendDocumentBytes", "sendDocumentBytes"
         SEND_DOCUMENT_FILE = "sendDocumentFile", "sendDocumentFile"
+        SEND_PROTECTED_MEDIA = "sendProtectedMedia", "Копия защищённого медиа"
 
     chat_id = models.BigIntegerField(verbose_name="Chat id")
     method = models.CharField(
@@ -873,6 +889,7 @@ class TelegramOutbox(models.Model):
         choices=Method.choices,
     )
     payload = models.JSONField(verbose_name="Тело запроса (без chat_id)")
+    delivery_context = models.JSONField(default=dict, db_default={}, blank=True)
     status = models.CharField(
         verbose_name="Статус",
         max_length=16,

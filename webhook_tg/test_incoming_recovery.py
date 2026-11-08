@@ -173,6 +173,7 @@ class IncomingRecoveryTests(TransactionTestCase):
         output = StringIO()
         with (
             patch(f"{COMMAND}.time", fake_time),
+            patch(f"{COMMAND}.IncomingQueueWakeup.wait", return_value=False),
             patch("webhook_tg.incoming.timezone.now",
                   side_effect=lambda: self.now + timedelta(seconds=clock.elapsed)),
             patch(f"{COMMAND}.claim_next_update", side_effect=claim),

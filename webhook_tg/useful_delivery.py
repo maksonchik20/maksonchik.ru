@@ -29,11 +29,11 @@ def _record_value(chat_id, *, event_type, sent_at, outbox=None):
 def record_first_observed_value(item, *, sent_at):
     # This prefix is assigned by the existing edit-notification sender. Do not
     # guess intent from message text, commands or a successful generic send.
-    if (
-        item.method != TelegramOutbox.Method.SEND_MESSAGE
-        or not (item.idempotency_key or "").startswith("edit:")
-        or sent_at is None
-    ):
+    contextFieldToValue = item.delivery_context or {}
+    event_type = "edit" if item.method == TelegramOutbox.Method.SEND_MESSAGE and (item.idempotency_key or "").startswith("edit:") else None
+    if contextFieldToValue.get("event_type") == "delete_text" and contextFieldToValue.get("has_original_text"):
+        event_type = "delete_text"
+    if event_type is None or sent_at is None:
         return
     confirmed_at = (
         TelegramOutbox.objects.filter(pk=item.pk, status=TelegramOutbox.Status.SENT)
@@ -41,7 +41,7 @@ def record_first_observed_value(item, *, sent_at):
     )
     if confirmed_at is None:
         return
-    _record_value(item.chat_id, event_type="edit", sent_at=confirmed_at, outbox=item)
+    _record_value(item.chat_id, event_type=event_type, sent_at=confirmed_at, outbox=item)
 
 
 def observe_deleted_text_delivery(chat_id):

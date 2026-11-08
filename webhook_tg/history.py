@@ -22,7 +22,10 @@ HISTORY_HELP = (
     "Примеры:\n"
     "<code>/history @username</code>\n"
     "<code>/history 123456789</code>\n\n"
-    "123456789 — Telegram ID собеседника, не номер телефона."
+    "123456789 — Telegram ID собеседника, не номер телефона.\n\n"
+    "<b>Доступны только сообщения, которые бот получил после подключения.</b> "
+    "Старую переписку Telegram боту не передаёт. "
+    "Нажмите кнопку ниже, чтобы выбрать среди уже сохранённых переписок."
 )
 HISTORY_CONTACTS_CALLBACK = "history:contacts"
 HISTORY_CONTACTS_BUTTON = "У пользователя нет username или не знаю его ID"
