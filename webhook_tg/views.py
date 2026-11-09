@@ -605,10 +605,9 @@ def _persist_business_connection_update(conn: dict, *, update_id=None):
         )
         if is_new_connection:
             record_connection(bot_user, connected_at=now, had_connection_history=had_connection_history)
-            from .connection_check import CHECK_KEYBOARD
             items = _queue_connection_notifications(
                 conn, bot_user, BOT_ACTIVATED_TEXT, _owner_connection_notification(conn, bot_user),
-                update_id=update_id, at=now, reply_markup=CHECK_KEYBOARD,
+                update_id=update_id, at=now,
             )
             print(f"business_connection enabled user_chat_id={user_chat_id}")
         else:

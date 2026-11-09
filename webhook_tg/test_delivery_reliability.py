@@ -128,7 +128,7 @@ class DeliveryReliabilityTests(TestCase):
         _handle_business_connection_update(conn, update_id=900001)
         _handle_business_connection_update(conn, update_id=900002)
         self.assertEqual(TelegramOutbox.objects.count(), 2)
-        self.assertIn("Проверить работу", str(TelegramOutbox.objects.get(chat_id=101).payload))
+        self.assertNotIn("reply_markup", TelegramOutbox.objects.get(chat_id=101).payload)
         _handle_business_connection_update({**conn, "is_enabled": False}, update_id=900003)
         self.assertEqual(TelegramOutbox.objects.count(), 4)
         self.owner.refresh_from_db()
